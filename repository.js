@@ -10,7 +10,10 @@ const dbConfig = {
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 60000,
-  ssl: {}  // Empty object enables TLS without validation
+  ssl: {
+    minVersion: 'TLSv1.2',
+    rejectUnauthorized: true
+  }
 };
 
 const pool = mysql.createPool(dbConfig);

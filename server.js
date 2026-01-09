@@ -31,16 +31,12 @@ app.use(
   express.static(staticDir)
 );
 
-// Serve frontend in production
-const distDir = path.join(process.cwd(), 'dist');
-app.use(express.static(distDir));
+// Servir archivos estáticos del Frontend - ELIMINADO para Render
+// El frontend vive en Hostinger. Este servidor es solo API.
 
-// Handle client-side routing
-app.get('/*', (req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
-    return next();
-  }
-  res.sendFile(path.join(distDir, 'index.html'));
+// Ruta raíz para health check
+app.get('/', (req, res) => {
+  res.send('🚀 Fleet Management Backend API is running!');
 });
 
 const storage = multer.diskStorage({
