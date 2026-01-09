@@ -84,7 +84,13 @@ const uploadPayment = multer({
 });
 
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = ['https://fleet.mentoresestrategicos.com'];
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
@@ -252,10 +258,10 @@ async function getUpcomingExpirations() {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'fleet_db',
     ssl: (process.env.RENDER || process.env.NODE_ENV === 'production')
-      ? { 
-          rejectUnauthorized: false,
-          minVersion: 'TLSv1.2'
-        }
+      ? {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      }
       : false
   });
 
