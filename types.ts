@@ -15,6 +15,7 @@ export interface Unit {
   year: number;
   assigned_company_id: number;
   status: 'Activo' | 'Baja' | 'Por Finalizar';
+  company_name?: string;
 }
 
 export interface Contract {
@@ -27,6 +28,11 @@ export interface Contract {
   end_date: string;
   term_months: number;
   monthly_rent: number;
+  company?: string;
+  unit?: string;
+  num?: string;
+  prov?: string;
+  type?: string;
 }
 
 export interface InsurancePolicy {
@@ -46,6 +52,9 @@ export interface Payment {
   period: string;
   amount: number;
   status: 'Pagado' | 'Pendiente';
+  type?: string;
+  company?: string;
+  unit?: string;
 }
 
 export interface Document {

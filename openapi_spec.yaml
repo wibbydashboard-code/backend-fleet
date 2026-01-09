@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Fleet Management API - Reports
+  version: 1.0.0
+  description: API for generating financial reports in Fleet Management platform, focused on Estado de Cuenta v1.0.
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /reports/estado-cuenta:
+    post:
+      summary: Generate Estado de Cuenta Excel Report
+      description: Generates the frozen Estado de Cuenta v1.0 Excel report for a specified entity (unit, company, or provider) within a date range. Returns a downloadable .xlsx file.
+      operationId: generateEstadoCuenta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - entidad_tipo
+                - entidad_id
+                - periodo_inicio
+                - periodo_fin
+              properties:
+                entidad_tipo:
+                  type: string
+                  enum: [unidad, empresa, proveedor]
+                  description: Type of entity for the report.
+                  example: "unidad"
+                entidad_id:
+                  type: integer
+                  description: ID of the entity (must exist in the corresponding table).
+                  example: 1
+                periodo_inicio:
+                  type: string
+                  format: date
+                  description: Start date of the period (YYYY-MM-DD).
+                  example: "2025-01-01"
+                periodo_fin:
+                  type: string
+                  format: date
+                  description: End date of the period (YYYY-MM-DD).
+                  example: "2025-12-31"
+                filtro_estatus:
+                  type: string
+                  enum: [todos, pagados, pendientes, vencidos]
+                  default: todos
+                  description: Optional filter for payment status.
+                  example: "todos"
+            example:
+              entidad_tipo: "unidad"
+              entidad_id: 1
+              periodo_inicio: "2025-01-01"
+              periodo_fin: "2025-12-31"
+              filtro_estatus: "todos"
+      responses:
+        '200':
+          description: Excel file generated successfully.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+                description: Downloadable .xlsx file with Estado de Cuenta v1.0.
+        '400':
+          description: Bad Request - Validation error.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: Description of the validation error.
+                    example: "entidad_id must be a valid unit ID"
+        '401':
+          description: Unauthorized - Invalid or missing JWT token.
+        '403':
+          description: Forbidden - Insufficient permissions for the entity.
+        '500':
+          description: Internal Server Error - Unexpected error during report generation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: Generic error message.
+                    example: "Internal server error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication. Required for all requests.</content>
+<parameter name="filePath">C:\Users\desib\Desktop\app_pcas\openapi_spec.yaml
