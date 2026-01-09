@@ -5,7 +5,10 @@ const dbConfig = {
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'fleet_db',
-  connectTimeout: 60000
+  connectTimeout: 60000,
+  ssl: {
+    rejectUnauthorized: false
+  }
 };
 
 let connection;
