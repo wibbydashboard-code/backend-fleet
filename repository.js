@@ -4,16 +4,24 @@ const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'fleet_db'
+  database: process.env.DB_NAME || 'fleet_db',
+  port: process.env.DB_PORT || 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  connectTimeout: 60000,
+  ssl: (process.env.RENDER || process.env.NODE_ENV === 'production')
+    ? { 
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      }
+    : false
 };
 
-let connection;
+const pool = mysql.createPool(dbConfig);
 
 async function getConnection() {
-  if (!connection) {
-    connection = await mysql.createConnection(dbConfig);
-  }
-  return connection;
+  return pool;
 }
 
 export async function validateEntidad(entidad_tipo, entidad_id) {

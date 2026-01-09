@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -5,6 +6,10 @@ import fs from 'fs';
 import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments } from './repository.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
+
+console.log('🚀 Iniciando servidor...');
+console.log('📡 DB HOST:', process.env.DB_HOST || 'localhost (por defecto)');
+console.log('🗄️  DB NAME:', process.env.DB_NAME || 'fleet_db');
 
 const app = express();
 app.use(express.json());
@@ -26,16 +31,12 @@ app.use(
   express.static(staticDir)
 );
 
-// Serve frontend in production
-const distDir = path.join(process.cwd(), 'dist');
-app.use(express.static(distDir));
+// Servir archivos estáticos del Frontend - ELIMINADO para Render
+// El frontend vive en Hostinger. Este servidor es solo API.
 
-// Handle client-side routing
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
-    return next();
-  }
-  res.sendFile(path.join(distDir, 'index.html'));
+// Ruta raíz para health check
+app.get('/', (req, res) => {
+  res.send('🚀 Fleet Management Backend API is running!');
 });
 
 const storage = multer.diskStorage({
@@ -83,7 +84,7 @@ const uploadPayment = multer({
 });
 
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
@@ -157,8 +158,8 @@ app.get('/api/stats', async (req, res) => {
     const nextExp = await getUpcomingExpirations();
     res.json({ ok: true, stats, nextExp });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error en /api/stats:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
@@ -249,7 +250,13 @@ async function getUpcomingExpirations() {
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'fleet_db'
+    database: process.env.DB_NAME || 'fleet_db',
+    ssl: (process.env.RENDER || process.env.NODE_ENV === 'production')
+      ? { 
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        }
+      : false
   });
 
   const query = `
@@ -583,6 +590,7 @@ app.post('/api/payments/:id/upload', uploadPayment.single('pdf'), async (req, re
 });
 
 console.log('>> ejecutando app.listen');
-app.listen(3000, () => {
-  console.log('Server running on port 3000');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 });
