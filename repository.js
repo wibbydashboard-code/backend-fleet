@@ -950,3 +950,32 @@ export async function deleteCompany(id) {
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }
+
+export async function fixCompaniesSchema() {
+  const conn = await getConnection();
+  try {
+    // Intentar agregar columnas si no existen
+    // Nota: MySQL/TiDB no siempre soporta IF NOT EXISTS en ADD COLUMN en todas las versiones, 
+    // pero TiDB generalmente es compatible con MySQL 5.7/8.0.
+    // Lo haremos con try-catch por si ya existen.
+
+    try {
+      await conn.execute("ALTER TABLE companies ADD COLUMN status VARCHAR(50) DEFAULT 'Activo'");
+      console.log("Added status column");
+    } catch (e) {
+      console.log("Status column likely exists or error:", e.message);
+    }
+
+    try {
+      await conn.execute("ALTER TABLE companies ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+      console.log("Added created_at column");
+    } catch (e) {
+      console.log("created_at column likely exists or error:", e.message);
+    }
+
+    return { message: "Schema patched successfully" };
+  } catch (error) {
+    console.error('FIX SCHEMA ERROR:', error);
+    throw error;
+  }
+}

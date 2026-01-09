@@ -3,7 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany } from './repository.js';
+import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, fixCompaniesSchema } from './repository.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
 
@@ -662,6 +662,17 @@ app.delete('/api/companies/:id', async (req, res) => {
     if (error.message === 'COMPANY_HAS_UNITS') return res.status(400).json({ error: 'Cannot delete: Company has assigned units' });
     if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Endpoint temporal para corregir la DB
+app.get('/api/fix-db', async (req, res) => {
+  try {
+    const result = await fixCompaniesSchema();
+    res.json({ ok: true, data: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error fixing DB', details: error.message });
   }
 });
 
