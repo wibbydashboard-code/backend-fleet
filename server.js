@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -5,6 +6,10 @@ import fs from 'fs';
 import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments } from './repository.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
+
+console.log('🚀 Iniciando servidor...');
+console.log('📡 DB HOST:', process.env.DB_HOST || 'localhost (por defecto)');
+console.log('🗄️  DB NAME:', process.env.DB_NAME || 'fleet_db');
 
 const app = express();
 app.use(express.json());
@@ -31,7 +36,7 @@ const distDir = path.join(process.cwd(), 'dist');
 app.use(express.static(distDir));
 
 // Handle client-side routing
-app.get('*', (req, res, next) => {
+app.get('/*', (req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
     return next();
   }

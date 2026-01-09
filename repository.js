@@ -11,8 +11,11 @@ const dbConfig = {
   queueLimit: 0,
   connectTimeout: 60000,
   ssl: {
-    rejectUnauthorized: false
-  }
+    minVersion: 'TLSv1.2',
+    rejectUnauthorized: true
+  },
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0
 };
 
 const pool = mysql.createPool(dbConfig);
