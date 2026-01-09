@@ -2,18 +2,22 @@
 import React, { useState, useCallback } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
-import Dashboard from '@/components/Dashboard';        // ⬅ default
+import Dashboard from '@/components/Dashboard';
 import { Units } from '@/components/Units';
 import { ContractsView } from '@/components/ContractsView';
+import { PaymentsView } from '@/components/PaymentsView';
+import { ProvidersView } from '@/components/ProvidersView';
 import { Reports } from '@/components/Reports';
 import { UnitDetailModal } from '@/components/UnitDetailModal';
-import type { ViewType, Unit } from '@/types';
+import type { ViewType, Unit } from '@/components/types';
 import { UNITS } from '@/constants';
 
 const viewTitles: Record<ViewType, string> = {
   dashboard: 'Dashboard General',
   unidades:  'Gestión de Unidades',
   contratos: 'Gestión de Contratos',
+  pagos:     'Pagos',
+  proveedores: 'Gestión de Proveedores',
   reportes:  'Reportes y Analíticas',
 };
 
@@ -37,6 +41,8 @@ export default function App() {
       case 'dashboard': return <Dashboard />;
       case 'unidades':  return <Units onOpenModal={handleOpenModal} />;
       case 'contratos': return <ContractsView />;
+      case 'pagos':     return <PaymentsView />;
+      case 'proveedores': return <ProvidersView />;
       case 'reportes':  return <Reports />;
       default:          return <Dashboard />;
     }

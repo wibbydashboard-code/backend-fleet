@@ -1,6 +1,6 @@
 import React from 'react';
-import type { ViewType } from '@/types'; // ⬅️ cambia esto
-import { PcasLogo, DashboardIcon, UnitsIcon, ContractsIcon, ReportsIcon } from './Icons';
+import type { ViewType } from '@/components/types';
+import { PcasLogo, DashboardIcon, UnitsIcon, ContractsIcon, ReportsIcon, ProvidersIcon, PaymentsIcon } from './Icons';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -11,6 +11,8 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { id: 'unidades', label: 'Unidades', icon: <UnitsIcon /> },
   { id: 'contratos', label: 'Contratos', icon: <ContractsIcon /> },
+  { id: 'pagos', label: 'Pagos', icon: <PaymentsIcon /> },
+  { id: 'proveedores', label: 'Proveedores', icon: <ProvidersIcon /> },
   { id: 'reportes', label: 'Reportes', icon: <ReportsIcon /> },
 ] as const;
 
