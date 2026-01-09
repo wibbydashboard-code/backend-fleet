@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, fixCompaniesSchema } from './repository.js';
+import { generateUnitTemplate, processBatchUpload } from './bulkUploadService.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
 
@@ -15,9 +16,11 @@ const app = express();
 app.use(express.json());
 
 const uploadsDir = path.join(process.cwd(), 'uploads', 'contracts');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const tempDir = path.join(process.cwd(), 'uploads', 'temp'); // Directorio temporal para excels
+
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
 
 const paymentsDir = path.join(process.cwd(), 'uploads', 'payments');
 if (!fs.existsSync(paymentsDir)) {
@@ -100,6 +103,52 @@ app.use((req, res, next) => {
 });
 
 console.log('>> server.js cargado correctamente');
+
+// --- CARGA MASIVA CONFIG ---
+const tempStorage = multer.diskStorage({
+  destination: (req, file, cb) => { cb(null, tempDir); },
+  filename: (req, file, cb) => { cb(null, 'batch-' + Date.now() + path.extname(file.originalname)); }
+});
+const uploadExcel = multer({
+  storage: tempStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.includes('sheet') || file.mimetype.includes('excel') || path.extname(file.originalname) === '.xlsx') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo archivos Excel (.xlsx)'));
+    }
+  }
+});
+
+// Rutas de Carga Masiva
+app.get('/api/units/template', async (req, res) => {
+  try {
+    const workbook = await generateUnitTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=Plantilla_Carga_Unidades.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error generando plantilla:', error);
+    res.status(500).json({ error: 'Error generando plantilla' });
+  }
+});
+
+app.post('/api/units/batch-upload', uploadExcel.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo' });
+
+  try {
+    const results = await processBatchUpload(req.file.path);
+    // Limpiar archivo temporal
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.json(results);
+  } catch (error) {
+    console.error('Error procesando batch:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: error.message });
+  }
+});
+// ---------------------------
 
 // Endpoint to generate Estado de Cuenta
 app.post('/api/reports/estado-cuenta', async (req, res) => {
