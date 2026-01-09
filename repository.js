@@ -10,10 +10,10 @@ const dbConfig = {
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 60000,
-  ssl: {
-    minVersion: 'TLSv1.2',
-    rejectUnauthorized: true
-  }
+  // Configuración SSL Condicional Estricta
+  ssl: process.env.DB_SSL === 'true'
+    ? { rejectUnauthorized: true, minVersion: 'TLSv1.2' }
+    : false
 };
 
 const pool = mysql.createPool(dbConfig);
