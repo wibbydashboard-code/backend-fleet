@@ -869,3 +869,84 @@ export async function getProviderStatement(providerId) {
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }
+
+// --- COMPANIES MODULE ---
+
+export async function getCompanies() {
+  const conn = await getConnection();
+  const query = `
+    SELECT id, name, status, created_at
+    FROM companies
+    ORDER BY name ASC
+  `;
+  try {
+    const [rows] = await conn.execute(query);
+    return rows;
+  } catch (error) {
+    console.error('GET COMPANIES ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function createCompany(name) {
+  const conn = await getConnection();
+  const query = `INSERT INTO companies (name, status) VALUES (?, 'Activo')`;
+  try {
+    const [result] = await conn.execute(query, [name]);
+    return { id: result.insertId, name, status: 'Activo' };
+  } catch (error) {
+    console.error('CREATE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateCompany(id, name) {
+  const conn = await getConnection();
+  const query = `UPDATE companies SET name = ? WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(query, [name, id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return { id, name };
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('UPDATE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateCompanyStatus(id, status) {
+  const conn = await getConnection();
+  const query = `UPDATE companies SET status = ? WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(query, [status, id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return { id, status };
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('UPDATE COMPANY STATUS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function deleteCompany(id) {
+  const conn = await getConnection();
+
+  // Check for assigned units first
+  const checkQuery = `SELECT COUNT(*) as count FROM units WHERE assigned_company_id = ?`;
+  const [rows] = await conn.execute(checkQuery, [id]);
+
+  if (rows[0].count > 0) {
+    throw new Error('COMPANY_HAS_UNITS');
+  }
+
+  const deleteQuery = `DELETE FROM companies WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(deleteQuery, [id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return true;
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('DELETE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}

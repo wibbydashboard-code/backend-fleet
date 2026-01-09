@@ -3,7 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments } from './repository.js';
+import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany } from './repository.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
 
@@ -588,6 +588,79 @@ app.post('/api/payments/:id/upload', uploadPayment.single('pdf'), async (req, re
     if (error.message === 'PAYMENT_NOT_FOUND') {
       return res.status(404).json({ error: 'Payment not found' });
     }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// --- COMPANIES ROUTES ---
+
+console.log('>> registrando GET /api/companies');
+app.get('/api/companies', async (req, res) => {
+  try {
+    const companies = await getCompanies();
+    res.json({ ok: true, data: companies });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando POST /api/companies');
+app.post('/api/companies', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    const company = await createCompany(name);
+    res.status(201).json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PUT /api/companies/:id');
+app.put('/api/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    const company = await updateCompany(id, name);
+    res.json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PUT /api/companies/:id/status');
+app.put('/api/companies/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const company = await updateCompanyStatus(id, status);
+    res.json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando DELETE /api/companies/:id');
+app.delete('/api/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteCompany(id);
+    res.json({ ok: true, message: 'Deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_HAS_UNITS') return res.status(400).json({ error: 'Cannot delete: Company has assigned units' });
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
