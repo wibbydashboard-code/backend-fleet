@@ -1,21 +1,19 @@
 import mysql from 'mysql2/promise';
 
-// Build connection URI with SSL mode for TiDB Cloud
-const host = process.env.DB_HOST || 'localhost';
-const user = process.env.DB_USER || 'root';
-const password = process.env.DB_PASSWORD || '';
-const database = process.env.DB_NAME || 'fleet_db';
-const port = process.env.DB_PORT || 3306;
-
-const connectionUri = `mysql://${user}:${password}@${host}:${port}/${database}?ssl={"rejectUnauthorized":false}`;
-
-const pool = mysql.createPool({
-  uri: connectionUri,
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'fleet_db',
+  port: process.env.DB_PORT || 3306,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  connectTimeout: 60000
-});
+  connectTimeout: 60000,
+  ssl: true  // Enable TLS without certificate validation
+};
+
+const pool = mysql.createPool(dbConfig);
 
 async function getConnection() {
   return pool;
