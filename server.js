@@ -84,7 +84,13 @@ const uploadPayment = multer({
 });
 
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = ['https://fleet.mentoresestrategicos.com'];
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
@@ -158,8 +164,8 @@ app.get('/api/stats', async (req, res) => {
     const nextExp = await getUpcomingExpirations();
     res.json({ ok: true, stats, nextExp });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error en /api/stats:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
@@ -250,7 +256,10 @@ async function getUpcomingExpirations() {
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'fleet_db'
+    database: process.env.DB_NAME || 'fleet_db',
+    ssl: (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')
+      ? { rejectUnauthorized: false }
+      : false
   });
 
   const query = `

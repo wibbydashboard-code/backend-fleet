@@ -10,9 +10,8 @@ const dbConfig = {
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 60000,
-  // Configuración SSL Condicional Estricta
-  ssl: process.env.DB_SSL === 'true'
-    ? { rejectUnauthorized: true, minVersion: 'TLSv1.2' }
+  ssl: (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')
+    ? { rejectUnauthorized: false }
     : false
 };
 
