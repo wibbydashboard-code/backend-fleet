@@ -1,6 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { getContractsComplete, getUnits, createContract, uploadContractPDF, getProviders, getPaymentsByContract, createPayment, uploadPaymentPDF, updatePaymentStatus, type ContractCompleteRow, type CreateContractRequest, type ProviderRow, type PaymentRow, type CreatePaymentRequest } from '@/api';
-import { COMPANIES } from '../constants';
+import { getContractsComplete, getUnits, createContract, uploadContractPDF, getProviders, getPaymentsByContract, createPayment, uploadPaymentPDF, updatePaymentStatus, getCompanies, type ContractCompleteRow, type CreateContractRequest, type ProviderRow, type PaymentRow, type CreatePaymentRequest, type CompanyRow } from '@/api';
 
 const fmt = (d?: string | null) => {
   if (!d) return '';
@@ -21,6 +21,7 @@ export const ContractsView: React.FC = () => {
   const [contracts, setContracts] = useState<ContractCompleteRow[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [providers, setProviders] = useState<ProviderRow[]>([]);
+  const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -55,19 +56,22 @@ export const ContractsView: React.FC = () => {
     try {
       setLoading(true);
       setErr('');
-      const [c, u, p] = await Promise.all([getContractsComplete(), getUnits(), getProviders()]);
+      const [c, u, p, comp] = await Promise.all([getContractsComplete(), getUnits(), getProviders(), getCompanies()]);
       setContracts(c);
       setUnits(u);
       setProviders(p.filter(pr => pr.status === 'Activo'));
+      setCompanies(comp.filter(cy => cy.status === 'Activo'));
     } catch (e: any) {
-      setErr(e?.message || 'Error cargando contratos');
+      setErr(e?.message || 'Error cargando datos');
       setContracts([]);
       setUnits([]);
       setProviders([]);
+      setCompanies([]);
     } finally {
       setLoading(false);
     }
   };
+
 
   const loadPayments = async (contractId: number) => {
     try {
@@ -136,7 +140,7 @@ export const ContractsView: React.FC = () => {
   useEffect(() => {
     load();
   }, []);
- 
+
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -181,14 +185,26 @@ export const ContractsView: React.FC = () => {
     window.open(`http://localhost:3000/${normalizedPath}`, '_blank');
   };
 
-  const calculateTermMonths = () => {
+  useEffect(() => {
     if (newContract.start_date && newContract.end_date) {
       const start = new Date(newContract.start_date);
       const end = new Date(newContract.end_date);
-      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-      setNewContract({ ...newContract, term_months: months || 1 });
+
+      // Validar que sean fechas completas (evitar años como 0002)
+      if (start.getFullYear() > 2000 && end.getFullYear() > 2000) {
+        const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+        // Solo actualizar si el cálculo es diferente para evitar loops infinitos
+        // y asegurar que sea positivo
+        const finalMonths = months > 0 ? months : 1;
+
+        // Evitar loop infinito comparando con el valor actual
+        setNewContract(prev => {
+          if (prev.term_months === finalMonths) return prev;
+          return { ...prev, term_months: finalMonths };
+        });
+      }
     }
-  };
+  }, [newContract.start_date, newContract.end_date]);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow">
@@ -325,7 +341,7 @@ export const ContractsView: React.FC = () => {
                     className="w-full border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Seleccione empresa</option>
-                    {COMPANIES.map(c => (
+                    {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
@@ -336,7 +352,7 @@ export const ContractsView: React.FC = () => {
                     type="date"
                     required
                     value={newContract.start_date}
-                    onChange={e => { setNewContract({ ...newContract, start_date: e.target.value }); calculateTermMonths(); }}
+                    onChange={e => setNewContract({ ...newContract, start_date: e.target.value })}
                     className="w-full border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
@@ -346,7 +362,7 @@ export const ContractsView: React.FC = () => {
                     type="date"
                     required
                     value={newContract.end_date}
-                    onChange={e => { setNewContract({ ...newContract, end_date: e.target.value }); calculateTermMonths(); }}
+                    onChange={e => setNewContract({ ...newContract, end_date: e.target.value })}
                     className="w-full border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
@@ -420,8 +436,8 @@ export const ContractsView: React.FC = () => {
                 </svg>
               </button>
             </div>
-              <div className="p-6">
-               <div className="flex justify-between items-center mb-4 relative z-10">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4 relative z-10">
                 <h4 className="text-lg font-semibold text-slate-700">Historial de Pagos</h4>
                 <button
                   type="button"

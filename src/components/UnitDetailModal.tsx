@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Unit } from '../types';
-import { COMPANIES, CONTRACTS, POLICIES, DOCUMENTS, PAYMENTS } from '../constants';
+import { CONTRACTS, POLICIES, DOCUMENTS, PAYMENTS } from '../constants';
 import { CloseIcon, PdfIcon } from './Icons';
 
 interface UnitDetailModalProps {
@@ -10,7 +10,7 @@ interface UnitDetailModalProps {
 }
 
 export const UnitDetailModal: React.FC<UnitDetailModalProps> = ({ unit, onClose }) => {
-    const company = COMPANIES.find(c => c.id === unit.assigned_company_id);
+    // const company = COMPANIES.find(c => c.id === unit.assigned_company_id); // Removed
     const contract = CONTRACTS.find(c => c.unit_id === unit.id);
     const policy = POLICIES.find(p => p.unit_id === unit.id);
     const documents = DOCUMENTS.filter(d => d.related_id === unit.id);
@@ -36,7 +36,7 @@ export const UnitDetailModal: React.FC<UnitDetailModalProps> = ({ unit, onClose 
                                 <p><span className="font-medium text-slate-800">Tipo:</span> {unit.type}</p>
                                 <p><span className="font-medium text-slate-800">Marca:</span> {unit.brand}</p>
                                 <p><span className="font-medium text-slate-800">Placa:</span> {unit.license_plate}</p>
-                                <p><span className="font-medium text-slate-800">Empresa Asignada:</span> {company?.name}</p>
+                                <p><span className="font-medium text-slate-800">Empresa Asignada:</span> {unit.company_name || 'Desconocida'}</p>
                             </div>
                             {contract && (
                                 <div>
@@ -75,10 +75,10 @@ export const UnitDetailModal: React.FC<UnitDetailModalProps> = ({ unit, onClose 
                                 <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Historial de Pagos Recientes (Renta)</h4>
                                 <ul className="divide-y divide-slate-200 border rounded-lg">
                                     {payments.map(payment => (
-                                         <li key={payment.id} className={`p-3 flex justify-between items-center ${payment.status === 'Pendiente' ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                                        <li key={payment.id} className={`p-3 flex justify-between items-center ${payment.status === 'Pendiente' ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                                             <p>Pago {payment.period}</p>
                                             {payment.status === 'Pagado' ? (
-                                                 <div className="flex items-center"><span className="font-medium text-green-600 mr-4">Pagado</span><a href="#" className="text-blue-600 text-sm font-medium hover:underline">Ver Factura</a></div>
+                                                <div className="flex items-center"><span className="font-medium text-green-600 mr-4">Pagado</span><a href="#" className="text-blue-600 text-sm font-medium hover:underline">Ver Factura</a></div>
                                             ) : (
                                                 <span className="font-medium text-amber-600">Pendiente</span>
                                             )}

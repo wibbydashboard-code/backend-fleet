@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = import.meta.env.PROD
+  ? 'https://backend-fleet.onrender.com/api'
+  : 'http://localhost:3000/api';
 
 export type StatsResponse = {
   ok: boolean;
@@ -380,4 +382,94 @@ export async function uploadPaymentPDF(paymentId: number, file: File): Promise<P
   }
   const result = await res.json();
   return result.data;
+}
+
+export type CompanyRow = {
+  id: number;
+  name: string;
+  status: 'Activo' | 'Inactivo';
+  created_at?: string;
+};
+
+export async function getCompanies(): Promise<CompanyRow[]> {
+  const res = await fetch(`${API_BASE}/companies`);
+  if (!res.ok) throw new Error('Error fetching companies');
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function createCompany(name: string): Promise<CompanyRow> {
+  const res = await fetch(`${API_BASE}/companies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!res.ok) throw new Error('Error creating company');
+  const json = await res.json();
+  return json.data;
+}
+
+export async function updateCompany(id: number, name: string): Promise<CompanyRow> {
+  const res = await fetch(`${API_BASE}/companies/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!res.ok) throw new Error('Error updating company');
+  const json = await res.json();
+  return json.data;
+}
+
+export async function updateCompanyStatus(id: number, status: 'Activo' | 'Inactivo'): Promise<CompanyRow> {
+  const res = await fetch(`${API_BASE}/companies/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error('Error updating company status');
+  const json = await res.json();
+  return json.data;
+}
+
+export async function deleteCompany(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/companies/${id}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    if (err.error === 'Cannot delete: Company has assigned units') {
+      throw new Error('COMPANY_HAS_UNITS');
+    }
+    throw new Error('Error deleting company');
+  }
+}
+
+// --- BATCH UPLOAD ---
+export async function downloadUnitsTemplate(): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/units/template`);
+  if (!res.ok) throw new Error('Error descargando plantilla');
+  return res.blob();
+}
+
+export type BatchUploadResult = {
+  total: number;
+  inserted: number;
+  failed: number;
+  errors: Array<{ row: number; economic_number?: string; message: string }>;
+};
+
+export async function uploadUnitsBatch(file: File): Promise<BatchUploadResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/units/batch-upload`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorJson = await res.json().catch(() => ({ error: 'Error desconocido' }));
+    throw new Error(errorJson.error || 'Error subiendo archivo');
+  }
+  return res.json();
 }

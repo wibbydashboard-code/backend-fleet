@@ -109,13 +109,38 @@ export const PaymentsView: React.FC = () => {
     }
   };
 
-  const handleViewPDF = (payment: PaymentRow) => {
+  const FILE_BASE_URL = (import.meta as any).env.PROD
+    ? 'https://backend-fleet.onrender.com'
+    : 'http://localhost:3000';
+
+  const handleViewPDF = async (payment: PaymentRow) => {
     if (!payment.payment_pdf_path) {
       setErr('No hay comprobante asociado a este pago');
       return;
     }
-    const normalizedPath = payment.payment_pdf_path.replace(/\\/g, '/');
-    window.open(`http://localhost:3000/${normalizedPath}`, '_blank');
+
+    try {
+      const normalizedPath = payment.payment_pdf_path.replace(/\\/g, '/');
+      const cleanPath = normalizedPath.startsWith('/') ? normalizedPath.substring(1) : normalizedPath;
+      const url = `${FILE_BASE_URL}/${cleanPath}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Error al descargar");
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `comprobante_pago_${payment.id}.${cleanPath.split('.').pop() || 'pdf'}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.error(e);
+      alert("No se pudo descargar el comprobante. Verifique conexión o existencia del archivo.");
+    }
   };
 
   const filteredPayments = payments.filter(p => {

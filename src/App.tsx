@@ -7,18 +7,20 @@ import { Units } from '@/components/Units';
 import { ContractsView } from '@/components/ContractsView';
 import { PaymentsView } from '@/components/PaymentsView';
 import { ProvidersView } from '@/components/ProvidersView';
+import { CompaniesView } from '@/components/CompaniesView';
 import { Reports } from '@/components/Reports';
 import { UnitDetailModal } from '@/components/UnitDetailModal';
 import type { ViewType, Unit } from '@/components/types';
-import { UNITS } from '@/constants';
+// import { UNITS } from '@/constants';
 
 const viewTitles: Record<ViewType, string> = {
   dashboard: 'Dashboard General',
-  unidades:  'Gestión de Unidades',
+  unidades: 'Gestión de Unidades',
   contratos: 'Gestión de Contratos',
-  pagos:     'Pagos',
+  pagos: 'Pagos',
   proveedores: 'Gestión de Proveedores',
-  reportes:  'Reportes y Analíticas',
+  empresas: 'Gestión de Empresas',
+  reportes: 'Reportes y Analíticas',
 };
 
 export default function App() {
@@ -26,9 +28,9 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
 
-  const handleOpenModal = useCallback((unitId: number) => {
-    const unit = UNITS.find(u => u.id === unitId);
-    if (unit) { setSelectedUnit(unit); setIsModalOpen(true); }
+  const handleOpenModal = useCallback((unit: Unit) => {
+    setSelectedUnit(unit);
+    setIsModalOpen(true);
   }, []);
 
   const handleCloseModal = useCallback(() => {
@@ -39,12 +41,13 @@ export default function App() {
   const renderContent = () => {
     switch (activeView) {
       case 'dashboard': return <Dashboard />;
-      case 'unidades':  return <Units onOpenModal={handleOpenModal} />;
+      case 'unidades': return <Units onOpenModal={handleOpenModal} />;
       case 'contratos': return <ContractsView />;
-      case 'pagos':     return <PaymentsView />;
+      case 'pagos': return <PaymentsView />;
       case 'proveedores': return <ProvidersView />;
-      case 'reportes':  return <Reports />;
-      default:          return <Dashboard />;
+      case 'empresas': return <CompaniesView />;
+      case 'reportes': return <Reports />;
+      default: return <Dashboard />;
     }
   };
 

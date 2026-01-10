@@ -3,21 +3,36 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments } from './repository.js';
+import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, fixCompaniesSchema, getAllTenants, getTenantById, createTenant, updateTenant, updateTenantStatus, getTenantMetrics, getAllUsers, getUserById, getUserByEmail, createUser, updateUser, updateUserStatus, updateLastLogin } from './repository.js';
+import { auditLogger } from './auditLogger.js';
+import { generateUnitTemplate, processBatchUpload } from './bulkUploadService.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
 import { generateExcel } from './excelGenerator.js';
+import helmet from 'helmet';
+import { apiRateLimit, batchUploadRateLimit } from './rateLimiter.js';
+import logger from './logger.js';
+import { errorHandler } from './errorHandler.js';
+import { RoleUtils } from './roleUtils.js';
+import { resolveTenant } from './resolveTenant.js';
+import { requireAuth } from './requireAuth.js';
+import { requireRole } from './requireRole.js';
+import { hashPassword, comparePasswords, generateToken } from './authService.js';
 
-console.log('🚀 Iniciando servidor...');
-console.log('📡 DB HOST:', process.env.DB_HOST || 'localhost (por defecto)');
-console.log('🗄️  DB NAME:', process.env.DB_NAME || 'fleet_db');
+logger.info('🚀 Iniciando servidor...');
+logger.info('📡 DB HOST:', process.env.DB_HOST || 'localhost (por defecto)');
+logger.info('🗄️  DB NAME:', process.env.DB_NAME || 'fleet_db');
 
 const app = express();
+app.use(helmet());
+app.use('/api', apiRateLimit);
 app.use(express.json());
 
 const uploadsDir = path.join(process.cwd(), 'uploads', 'contracts');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const tempDir = path.join(process.cwd(), 'uploads', 'temp'); // Directorio temporal para excels
+
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
 
 const paymentsDir = path.join(process.cwd(), 'uploads', 'payments');
 if (!fs.existsSync(paymentsDir)) {
@@ -99,7 +114,88 @@ app.use((req, res, next) => {
   next();
 });
 
-console.log('>> server.js cargado correctamente');
+// Middleware global de resolución de tenant (NO BLOQUEANTE)
+app.use(resolveTenant);
+
+const requireAdmin = (req, res, next) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    return res.status(401).json({ error: 'Authorization required' });
+  }
+  try {
+    const decoded = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+const validateTenantFromJWT = (req, res, next) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) {
+    try {
+      const decoded = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      req.user = req.user || {};
+      req.user.tenantId = decoded.tenantId;
+    } catch (error) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+  }
+  next();
+};
+
+logger.info('>> server.js cargado correctamente');
+
+// --- CARGA MASIVA CONFIG ---
+const tempStorage = multer.diskStorage({
+  destination: (req, file, cb) => { cb(null, tempDir); },
+  filename: (req, file, cb) => { cb(null, 'batch-' + Date.now() + path.extname(file.originalname)); }
+});
+const uploadExcel = multer({
+  storage: tempStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.includes('sheet') || file.mimetype.includes('excel') || path.extname(file.originalname) === '.xlsx') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo archivos Excel (.xlsx)'));
+    }
+  }
+});
+
+// Rutas de Carga Masiva
+app.get('/api/units/template', async (req, res) => {
+  try {
+    const workbook = await generateUnitTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=Plantilla_Carga_Unidades.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    logger.error('Error generando plantilla:', error);
+    res.status(500).json({ error: 'Error generando plantilla' });
+  }
+});
+
+app.use('/api/units/batch-upload', batchUploadRateLimit);
+app.post('/api/units/batch-upload', uploadExcel.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo' });
+
+  try {
+    const results = await processBatchUpload(req.file.path);
+    // Limpiar archivo temporal
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.json(results);
+  } catch (error) {
+    logger.error('Error procesando batch:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: error.message });
+  }
+});
+// ---------------------------
 
 // Endpoint to generate Estado de Cuenta
 app.post('/api/reports/estado-cuenta', async (req, res) => {
@@ -160,7 +256,10 @@ app.post('/api/reports/estado-cuenta', async (req, res) => {
 console.log('>> registrando /api/stats');
 app.get('/api/stats', async (req, res) => {
   try {
-    const stats = await getStats();
+    // Tenant opcional (Fase 3b: vendrá de req.query.tenantId)
+    // Fase 3a: siempre es null (comportamiento actual)
+    const { tenantId } = req.query;
+    const stats = await getStats(tenantId ? parseInt(tenantId) : null);
     const nextExp = await getUpcomingExpirations();
     res.json({ ok: true, stats, nextExp });
   } catch (error) {
@@ -170,16 +269,56 @@ app.get('/api/stats', async (req, res) => {
 });
 
 console.log('>> registrando /api/units');
-app.get('/api/units', async (req, res) => {
-  try {
-    const { q, status, company } = req.query;
-    const units = await getAllUnits({ q, status, company });
-    res.json({ ok: true, data: units });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+ app.get('/api/units', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+   try {
+     const { q, status, company } = req.query;
+
+     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+     let tenantId = req.tenantId;
+
+     // PRIORIDAD 2: query param tenantId (fallback)
+     if (!tenantId && req.query.tenantId) {
+       tenantId = parseInt(req.query.tenantId);
+     }
+
+     // PRIORIDAD 3: header x-tenant-id (fallback)
+     if (!tenantId && req.headers['x-tenant-id']) {
+       tenantId = parseInt(req.headers['x-tenant-id']);
+     }
+
+     const filters = { q, status, company };
+     if (tenantId) {
+       filters.tenantId = tenantId;
+     }
+
+     const units = await getAllUnits(filters);
+
+     // Logging en audit_logs
+     const logMetadata = {
+       endpoint: 'GET /api/units',
+       tenantId: tenantId,
+       tenantSource: req.tenantSource || 'query_param',
+       result: units.length > 0 ? 'OK' : 'empty',
+       units_count: units.length
+     };
+
+     if (tenantId) {
+       await auditLogger.log({
+         userId: req.user?.userId || null,
+         tenantId,
+         action: 'access_units',
+         entity: 'unit',
+         metadata: logMetadata,
+         req
+       });
+     }
+
+     res.json({ ok: true, data: units });
+   } catch (error) {
+     console.error(error);
+     res.status(500).json({ error: 'Internal server error' });
+   }
+ });
 
 console.log('>> registrando POST /api/units');
 app.post('/api/units', async (req, res) => {
@@ -204,6 +343,22 @@ app.post('/api/units', async (req, res) => {
       year,
       assigned_company_id,
       assigned_provider_id
+    });
+
+    await auditLogger.log({
+      userId: null,
+      action: 'create',
+      entity: 'unit',
+      entityId: unit.id,
+      metadata: {
+        economic_number,
+        license_plate,
+        type,
+        brand,
+        model,
+        year
+      },
+      req
     });
 
     res.status(201).json({ ok: true, data: unit });
@@ -240,6 +395,16 @@ app.put('/api/units/:id/status', async (req, res) => {
     }
 
     const unit = await updateUnitStatus(id, status);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'update_status',
+      entity: 'unit',
+      entityId: id,
+      metadata: { status },
+      req
+    });
+
     res.json({ ok: true, data: unit });
   } catch (error) {
     console.error(error);
@@ -257,11 +422,8 @@ async function getUpcomingExpirations() {
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'fleet_db',
-    ssl: (process.env.RENDER || process.env.NODE_ENV === 'production')
-      ? {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      }
+    ssl: (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')
+      ? { rejectUnauthorized: false }
       : false
   });
 
@@ -289,15 +451,55 @@ async function getUpcomingExpirations() {
 }
 
 console.log('>> registrando GET /api/contracts');
-app.get('/api/contracts', async (req, res) => {
-  try {
-    const { unit_id, company_id } = req.query;
-    const contracts = await getAllContracts({ unit_id, company_id });
-    res.json({ ok: true, data: contracts });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+ app.get('/api/contracts', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+   try {
+     const { unit_id, company_id } = req.query;
+
+     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+     let tenantId = req.tenantId;
+
+     // PRIORIDAD 2: query param tenantId (fallback)
+     if (!tenantId && req.query.tenantId) {
+       tenantId = parseInt(req.query.tenantId);
+     }
+
+     // PRIORIDAD 3: header x-tenant-id (fallback)
+     if (!tenantId && req.headers['x-tenant-id']) {
+       tenantId = parseInt(req.headers['x-tenant-id']);
+     }
+
+     const filters = { unit_id, company_id };
+     if (tenantId) {
+       filters.tenantId = tenantId;
+     }
+
+     const contracts = await getAllContracts(filters);
+
+     // Logging en audit_logs
+     const logMetadata = {
+       endpoint: 'GET /api/contracts',
+       tenantId: tenantId,
+       tenantSource: req.tenantSource || 'query_param',
+       result: contracts.length > 0 ? 'OK' : 'empty',
+       contracts_count: contracts.length
+     };
+
+     if (tenantId) {
+       await auditLogger.log({
+         userId: req.user?.userId || null,
+         tenantId,
+         action: 'access_contracts',
+         entity: 'contract',
+         metadata: logMetadata,
+         req
+       });
+     }
+
+     res.json({ ok: true, data: contracts });
+   } catch (error) {
+     console.error(error);
+     res.status(500).json({ error: 'Internal server error' });
+   }
 });
 
 console.log('>> registrando GET /api/payments/report');
@@ -363,6 +565,24 @@ app.post('/api/contracts', async (req, res) => {
       monthly_rent
     });
 
+    await auditLogger.log({
+      userId: null,
+      action: 'create',
+      entity: 'contract',
+      entityId: contract.id,
+      metadata: {
+        contract_number,
+        provider_id,
+        unit_id,
+        contracting_company_id,
+        start_date,
+        end_date,
+        term_months,
+        monthly_rent
+      },
+      req
+    });
+
     res.status(201).json({ ok: true, data: contract });
   } catch (error) {
     console.error(error);
@@ -409,6 +629,20 @@ app.post('/api/providers', async (req, res) => {
       contact_phone
     });
 
+    await auditLogger.log({
+      userId: null,
+      action: 'create',
+      entity: 'provider',
+      entityId: provider.id,
+      metadata: {
+        name,
+        type,
+        rfc,
+        contact_name
+      },
+      req
+    });
+
     res.status(201).json({ ok: true, data: provider });
   } catch (error) {
     console.error(error);
@@ -434,6 +668,21 @@ app.put('/api/providers/:id', async (req, res) => {
       contact_phone
     });
 
+    await auditLogger.log({
+      userId: null,
+      action: 'update',
+      entity: 'provider',
+      entityId: providerId,
+      metadata: {
+        name,
+        rfc,
+        contact_name,
+        contact_email,
+        contact_phone
+      },
+      req
+    });
+
     res.json({ ok: true, data: provider });
   } catch (error) {
     console.error(error);
@@ -452,6 +701,16 @@ app.put('/api/providers/:id/status', async (req, res) => {
     }
 
     const provider = await updateProviderStatus(id, status);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'update_status',
+      entity: 'provider',
+      entityId: id,
+      metadata: { status },
+      req
+    });
+
     res.json({ ok: true, data: provider });
   } catch (error) {
     console.error(error);
@@ -489,6 +748,15 @@ app.post('/api/contracts/:id/upload', upload.single('pdf'), async (req, res) => 
     const pdfPath = 'uploads/contracts/' + req.file.filename;
     const result = await updateContractPDF(id, pdfPath);
 
+    await auditLogger.log({
+      userId: null,
+      action: 'upload_pdf',
+      entity: 'contract',
+      entityId: id,
+      metadata: { pdfPath },
+      req
+    });
+
     res.json({ ok: true, data: result });
   } catch (error) {
     console.error(error);
@@ -521,6 +789,20 @@ app.post('/api/payments', async (req, res) => {
       status
     });
 
+    await auditLogger.log({
+      userId: null,
+      action: 'create',
+      entity: 'payment',
+      entityId: payment.id,
+      metadata: {
+        contract_id,
+        amount,
+        status,
+        payment_date
+      },
+      req
+    });
+
     res.status(201).json({ ok: true, data: payment });
   } catch (error) {
     console.error(error);
@@ -529,15 +811,55 @@ app.post('/api/payments', async (req, res) => {
 });
 
 console.log('>> registrando GET /api/payments');
-app.get('/api/payments', async (req, res) => {
-  try {
-    const { contract_id, status } = req.query;
-    const payments = await getAllPayments({ contract_id, status });
-    res.json({ ok: true, data: payments });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+ app.get('/api/payments', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+   try {
+     const { contract_id, status } = req.query;
+
+     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+     let tenantId = req.tenantId;
+
+     // PRIORIDAD 2: query param tenantId (fallback)
+     if (!tenantId && req.query.tenantId) {
+       tenantId = parseInt(req.query.tenantId);
+     }
+
+     // PRIORIDAD 3: header x-tenant-id (fallback)
+     if (!tenantId && req.headers['x-tenant-id']) {
+       tenantId = parseInt(req.headers['x-tenant-id']);
+     }
+
+     const filters = { contract_id, status };
+     if (tenantId) {
+       filters.tenantId = tenantId;
+     }
+
+     const payments = await getAllPayments(filters);
+
+     // Logging en audit_logs
+     const logMetadata = {
+       endpoint: 'GET /api/payments',
+       tenantId: tenantId,
+       tenantSource: req.tenantSource || 'query_param',
+       result: payments.length > 0 ? 'OK' : 'empty',
+       payments_count: payments.length
+     };
+
+     if (tenantId) {
+       await auditLogger.log({
+         userId: req.user?.userId || null,
+         tenantId,
+         action: 'access_payments',
+         entity: 'payment',
+         metadata: logMetadata,
+         req
+       });
+     }
+
+     res.json({ ok: true, data: payments });
+   } catch (error) {
+     console.error(error);
+     res.status(500).json({ error: 'Internal server error' });
+   }
 });
 
 console.log('>> registrando GET /api/payments/by-contract/:id');
@@ -563,6 +885,16 @@ app.put('/api/payments/:id/status', async (req, res) => {
     }
 
     const payment = await updatePaymentStatus(id, status);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'update_status',
+      entity: 'payment',
+      entityId: id,
+      metadata: { status },
+      req
+    });
+
     res.json({ ok: true, data: payment });
   } catch (error) {
     console.error(error);
@@ -585,6 +917,15 @@ app.post('/api/payments/:id/upload', uploadPayment.single('pdf'), async (req, re
     const pdfPath = 'uploads/payments/' + req.file.filename;
     const result = await updatePaymentPDF(id, pdfPath);
 
+    await auditLogger.log({
+      userId: null,
+      action: 'upload_pdf',
+      entity: 'payment',
+      entityId: id,
+      metadata: { pdfPath },
+      req
+    });
+
     res.json({ ok: true, data: result });
   } catch (error) {
     console.error(error);
@@ -594,6 +935,532 @@ app.post('/api/payments/:id/upload', uploadPayment.single('pdf'), async (req, re
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// --- COMPANIES ROUTES ---
+
+console.log('>> registrando GET /api/companies');
+app.get('/api/companies', async (req, res) => {
+  try {
+    const companies = await getCompanies();
+    res.json({ ok: true, data: companies });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando POST /api/companies');
+app.post('/api/companies', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    const company = await createCompany(name);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'create',
+      entity: 'company',
+      entityId: company.id,
+      metadata: { name },
+      req
+    });
+
+    res.status(201).json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PUT /api/companies/:id');
+app.put('/api/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    const company = await updateCompany(id, name);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'update',
+      entity: 'company',
+      entityId: id,
+      metadata: { name },
+      req
+    });
+
+    res.json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PUT /api/companies/:id/status');
+app.put('/api/companies/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const company = await updateCompanyStatus(id, status);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'update_status',
+      entity: 'company',
+      entityId: id,
+      metadata: { status },
+      req
+    });
+
+    res.json({ ok: true, data: company });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando DELETE /api/companies/:id');
+app.delete('/api/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteCompany(id);
+
+    await auditLogger.log({
+      userId: null,
+      action: 'delete',
+      entity: 'company',
+      entityId: id,
+      req
+    });
+
+    res.json({ ok: true, message: 'Deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'COMPANY_HAS_UNITS') return res.status(400).json({ error: 'Cannot delete: Company has assigned units' });
+    if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Endpoint temporal para corregir la DB
+app.get('/api/fix-db', async (req, res) => {
+  try {
+    const result = await fixCompaniesSchema();
+    res.json({ ok: true, data: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error fixing DB', details: error.message });
+  }
+});
+
+// NUEVOS ENDPOINTS DE AUTH (INDEPENDIENTES, NO PROTEGEN NADA AÚN)
+
+app.post('/api/auth/login', async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // PRIORIDAD 1: Autenticar contra tabla users (REAL)
+    let user = null;
+    try {
+      user = await getUserByEmail(email);
+    } catch (error) {
+      console.warn('Error fetching user from DB:', error.message);
+    }
+
+    // PRIORIDAD 2: Hardcode fallback (TEMPORAL)
+    let authMethod = 'database';
+
+    if (!user) {
+      if (email === 'admin@pcas.com' && password === 'Admin123!') {
+        user = {
+          id: 1,
+          email: 'admin@pcas.com',
+          name: 'Admin User',
+          role: 'admin',
+          tenant_id: 1,
+          status: 'active'
+        };
+        authMethod = 'hardcode_fallback';
+        console.warn('Using hardcode fallback for admin login (TEMPORAL)');
+      }
+    }
+
+    // Si no hay usuario (ni en BD ni hardcode), fallar
+    if (!user) {
+      await auditLogger.log({
+        userId: null,
+        tenantId: null,
+        action: 'login_failed',
+        entity: 'auth',
+        metadata: { email, reason: 'user_not_found' },
+        req
+      });
+
+      logger.warn({
+        type: 'auth_login_failed',
+        email,
+        reason: 'user_not_found'
+      });
+
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Verificar si el usuario está activo
+    if (user.status !== 'active') {
+      await auditLogger.log({
+        userId: user.id,
+        tenantId: user.tenant_id,
+        action: 'login_failed',
+        entity: 'auth',
+        metadata: { email, reason: 'user_not_active', status: user.status },
+        req
+      });
+
+      logger.warn({
+        type: 'auth_login_failed',
+        email,
+        reason: 'user_not_active',
+        status: user.status
+      });
+
+      return res.status(403).json({ error: 'Account is not active' });
+    }
+
+    // Verificar password (si es usuario de BD)
+    if (authMethod === 'database') {
+      const isPasswordValid = await comparePasswords(password, user.password_hash);
+      if (!isPasswordValid) {
+        await auditLogger.log({
+          userId: user.id,
+          tenantId: user.tenant_id,
+          action: 'login_failed',
+          entity: 'auth',
+          metadata: { email, reason: 'invalid_password' },
+          req
+        });
+
+        logger.warn({
+          type: 'auth_login_failed',
+          email,
+          reason: 'invalid_password'
+        });
+
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+    }
+
+    // Generar token
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenant_id
+    });
+
+    // Actualizar last_login
+    if (authMethod === 'database') {
+      try {
+        await updateLastLogin(user.id);
+      } catch (error) {
+        console.warn('Error updating last_login:', error.message);
+      }
+    }
+
+    // Log de login exitoso
+    await auditLogger.log({
+      userId: user.id,
+      tenantId: user.tenant_id,
+      action: 'login',
+      entity: 'auth',
+      metadata: {
+        email: user.email,
+        role: user.role,
+        auth_method: authMethod
+      },
+      req
+    });
+
+    logger.info({
+      type: 'auth_login_success',
+      userId: user.id,
+      tenantId: user.tenant_id,
+      email: user.email,
+      role: user.role,
+      auth_method: authMethod
+    });
+
+    res.json({
+      ok: true,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          tenantId: user.tenant_id
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// --- TENANT ADMIN ENDPOINTS (Admin Only) ---
+
+console.log('>> registrando GET /api/admin/tenants');
+app.get('/api/admin/tenants', requireAdmin, async (req, res) => {
+  try {
+    const { status, slug } = req.query;
+    const tenants = await getAllTenants({ status, slug });
+
+    await auditLogger.log({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      action: 'list_tenants',
+      entity: 'tenant',
+      req
+    });
+
+    res.json({ ok: true, data: tenants });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando POST /api/admin/tenants');
+app.post('/api/admin/tenants', requireAdmin, async (req, res) => {
+  try {
+    const { name, slug, settings } = req.body;
+
+    if (!name || !slug) {
+      return res.status(400).json({ error: 'Name and slug are required' });
+    }
+
+    const tenant = await createTenant({ name, slug, settings });
+
+    await auditLogger.log({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      action: 'create_tenant',
+      entity: 'tenant',
+      entityId: tenant.id,
+      metadata: { name, slug },
+      req
+    });
+
+    res.status(201).json({ ok: true, data: tenant });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'DUPLICATE_SLUG') {
+      return res.status(400).json({ error: 'Slug already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando GET /api/admin/tenants/:id/metrics');
+app.get('/api/admin/tenants/:id/metrics', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const metrics = await getTenantMetrics(id);
+
+    res.json({ ok: true, data: metrics });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PATCH /api/admin/tenants/:id');
+app.patch('/api/admin/tenants/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, slug, status } = req.body;
+
+    if (!name || !slug) {
+      return res.status(400).json({ error: 'Name and slug are required' });
+    }
+
+    let result;
+
+    if (status) {
+      if (!['active', 'suspended', 'deleted'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      result = await updateTenantStatus(id, status);
+
+      await auditLogger.log({
+        userId: req.user.userId,
+        tenantId: req.user.tenantId,
+        action: status === 'deleted' ? 'delete_tenant' : 'update_tenant_status',
+        entity: 'tenant',
+        entityId: id,
+        metadata: { status },
+        req
+      });
+    } else {
+      result = await updateTenant(id, { name, slug, settings: req.body.settings });
+
+      await auditLogger.log({
+        userId: req.user.userId,
+        tenantId: req.user.tenantId,
+        action: 'update_tenant',
+        entity: 'tenant',
+        entityId: id,
+        metadata: { name, slug },
+        req
+      });
+    }
+
+    res.json({ ok: true, data: result });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'TENANT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    if (error.message === 'DUPLICATE_SLUG') {
+      return res.status(400).json({ error: 'Slug already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando GET /api/admin/users');
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+  try {
+    const { tenantId, status, role } = req.query;
+    const filters = {};
+    if (tenantId) filters.tenantId = parseInt(tenantId);
+    if (status) filters.status = status;
+    if (role) filters.role = role;
+    const users = await getAllUsers(filters);
+
+    await auditLogger.log({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      action: 'list_users',
+      entity: 'user',
+      req
+    });
+
+    res.json({ ok: true, data: users });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando POST /api/admin/users');
+app.post('/api/admin/users', requireAdmin, async (req, res) => {
+  try {
+    const { email, password, name, role, tenant_id } = req.body;
+
+    if (!email || !password || !name || !tenant_id) {
+      return res.status(400).json({ error: 'Email, password, name, and tenant_id are required' });
+    }
+
+    const { hashPassword } = await import('./authService.js');
+    const password_hash = await hashPassword(password);
+
+    const user = await createUser({
+      email,
+      password_hash,
+      name,
+      role: role || 'user',
+      tenant_id
+    });
+
+    await auditLogger.log({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      action: 'create_user',
+      entity: 'user',
+      entityId: user.id,
+      metadata: { email, name, role: user.role, tenant_id },
+      req
+    });
+
+    res.status(201).json({ ok: true, data: user });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'DUPLICATE_EMAIL') {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando PATCH /api/admin/users/:id');
+app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, role, status, password } = req.body;
+
+    let updateData = { name, role };
+
+    if (status) {
+      if (!['active', 'suspended', 'deleted'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      const result = await updateUserStatus(id, status);
+
+      await auditLogger.log({
+        userId: req.user.userId,
+        tenantId: req.user.tenantId,
+        action: status === 'deleted' ? 'delete_user' : 'update_user_status',
+        entity: 'user',
+        entityId: id,
+        metadata: { status },
+        req
+      });
+
+      return res.json({ ok: true, data: result });
+    }
+
+    if (password) {
+      const { hashPassword } = await import('./authService.js');
+      updateData.password_hash = await hashPassword(password);
+    }
+
+    const result = await updateUser(id, updateData);
+
+    await auditLogger.log({
+      userId: req.user.userId,
+      tenantId: req.user.tenantId,
+      action: 'update_user',
+      entity: 'user',
+      entityId: id,
+      metadata: { name, role },
+      req
+    });
+
+    res.json({ ok: true, data: result });
+  } catch (error) {
+    console.error(error);
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (error.message === 'DUPLICATE_EMAIL') {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.use(errorHandler);
 
 console.log('>> ejecutando app.listen');
 const PORT = process.env.PORT || 3000;

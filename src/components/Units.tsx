@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getUnits, createUnit, updateUnitStatus, type UnitRow, type CreateUnitRequest } from '@/api';
-import { COMPANIES } from '../constants';
+import { getUnits, createUnit, updateUnitStatus, getCompanies, downloadUnitsTemplate, uploadUnitsBatch, type UnitRow, type CreateUnitRequest, type CompanyRow, type BatchUploadResult } from '@/api';
 
 interface UnitsProps {
-  onOpenModal: (unitId: number) => void;
+  onOpenModal: (unit: UnitRow) => void;
 }
 
 const statusBadge = (status?: string | null) => {
@@ -19,6 +18,7 @@ const statusBadge = (status?: string | null) => {
 
 export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
   const [rows, setRows] = useState<UnitRow[]>([]);
+  const [companiesList, setCompaniesList] = useState<CompanyRow[]>([]);
   const [q, setQ] = useState('');
   const [company, setCompany] = useState('');
   const [status, setStatus] = useState('');
@@ -38,18 +38,56 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
     assigned_company_id: 0
   });
 
+  // --- BATCH STATES ---
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchUploadResult | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const blob = await downloadUnitsTemplate();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Plantilla_Carga_Unidades.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const handleBatchUpload = async () => {
+    if (!batchFile) return;
+    try {
+      setBatchLoading(true);
+      setErr(''); // Clear global error
+      const res = await uploadUnitsBatch(batchFile);
+      setBatchResult(res);
+      await load();
+    } catch (e: any) {
+      setErr(e.message);
+      setBatchResult(null);
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+  // --------------------
+
   const load = async () => {
     try {
       setLoading(true);
       setErr('');
-      const data: UnitRow[] = await getUnits({
-        q: q.trim(),
-        status: status.trim(),
-        company: company.trim(),
-      });
-      setRows(data ?? []);
+      const [unitsData, companiesData] = await Promise.all([
+        getUnits({ q: q.trim(), status: status.trim(), company: company.trim() }),
+        getCompanies()
+      ]);
+      setRows(unitsData ?? []);
+      setCompaniesList(companiesData ?? []);
     } catch (e: any) {
-      setErr(e?.message ?? 'Error cargando unidades');
+      setErr(e?.message ?? 'Error cargando datos');
       setRows([]);
     } finally {
       setLoading(false);
@@ -120,8 +158,10 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, status, company]);
 
-  // empresas derivadas (normalizadas)
-  const companies = useMemo(() => {
+  const activeCompanies = useMemo(() => companiesList.filter(c => c.status === 'Activo'), [companiesList]);
+
+  // empresas derivadas para filtro (solo nombres únicos de lo que hay en tabla)
+  const filterCompanies = useMemo(() => {
     const set = new Set<string>();
     rows.forEach(r => {
       const name = (r.company_name ?? '').trim();
@@ -134,16 +174,26 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
     <div className="bg-white p-6 rounded-lg shadow">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-semibold text-slate-800">Gestión de Unidades</h2>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Registrar Unidad
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowBatchModal(true); setBatchResult(null); setBatchFile(null); }}
+            className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            Carga Masiva
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Registrar Unidad
+          </button>
+        </div>
       </div>
+
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <input
@@ -160,7 +210,7 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
           className="block w-full pl-3 pr-10 py-2 border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
         >
           <option value="">Filtrar por Empresa</option>
-          {companies.map((name) => (
+          {filterCompanies.map((name) => (
             <option key={name} value={name}>{name}</option>
           ))}
         </select>
@@ -210,7 +260,7 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{unit.company_name || ''}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{statusBadge(unit.status)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                  <button onClick={() => onOpenModal(unit.id)} className="text-blue-600 hover:text-blue-900">
+                  <button onClick={() => onOpenModal(unit)} className="text-blue-600 hover:text-blue-900">
                     Ver Detalles
                   </button>
                   {unit.status === 'Activo' && (
@@ -329,7 +379,7 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
                     className="w-full border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Seleccione empresa</option>
-                    {COMPANIES.map(c => (
+                    {activeCompanies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
@@ -352,6 +402,84 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative">
+            <button onClick={() => { setShowBatchModal(false); setBatchResult(null); setBatchFile(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-slate-800">
+              ✕
+            </button>
+            <h3 className="text-xl font-bold mb-4">Carga Masiva de Unidades</h3>
+
+            {!batchResult ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600">Descargue la plantilla, llénela y súbala aquí.</p>
+
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="text-blue-600 hover:underline text-sm font-medium flex items-center gap-1"
+                >
+                  📥 Descargar Plantilla Oficial
+                </button>
+
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50">
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={e => setBatchFile(e.target.files?.[0] || null)}
+                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <button
+                    onClick={handleBatchUpload}
+                    disabled={!batchFile || batchLoading}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-md font-bold disabled:opacity-50"
+                  >
+                    {batchLoading ? 'Procesando...' : 'Subir y Procesar'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                  <div className="bg-slate-100 p-2 rounded">Total <div className="font-bold text-lg">{batchResult.total}</div></div>
+                  <div className="bg-green-100 p-2 rounded text-green-800">Insertados <div className="font-bold text-lg">{batchResult.inserted}</div></div>
+                  <div className="bg-red-100 p-2 rounded text-red-800">Fallidos <div className="font-bold text-lg">{batchResult.failed}</div></div>
+                </div>
+
+                {batchResult.errors.length > 0 && (
+                  <div className="border rounded bg-slate-50 p-2 max-h-60 overflow-y-auto text-sm">
+                    <table className="w-full text-left">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-100 sticky top-0">
+                        <tr><th>Fila</th><th>Eco</th><th>Error</th></tr>
+                      </thead>
+                      <tbody>
+                        {batchResult.errors.map((err, idx) => (
+                          <tr key={idx} className="border-b last:border-0">
+                            <td className="py-1 px-1 font-mono text-xs">{err.row}</td>
+                            <td className="py-1 px-1 font-mono text-xs">{err.economic_number || '-'}</td>
+                            <td className="py-1 px-1 text-red-600">{err.message}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex justify-end pt-4">
+                  <button
+                    onClick={() => { setShowBatchModal(false); setBatchResult(null); setBatchFile(null); load(); }}
+                    className="bg-slate-800 text-white px-4 py-2 rounded"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

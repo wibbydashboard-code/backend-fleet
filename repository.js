@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import { applyTenantFilter } from './tenantHelper.js';
 
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
@@ -10,11 +11,8 @@ const dbConfig = {
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 60000,
-  ssl: (process.env.RENDER || process.env.NODE_ENV === 'production')
-    ? { 
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      }
+  ssl: (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')
+    ? { rejectUnauthorized: false }
     : false
 };
 
@@ -140,8 +138,11 @@ export async function getAllUnits(filters = {}) {
 
   query += ` ORDER BY u.economic_number ASC`;
 
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId);
+
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET ALL UNITS ERROR:', error);
@@ -151,6 +152,7 @@ export async function getAllUnits(filters = {}) {
 
 export async function createUnit(unitData) {
   const conn = await getConnection();
+  const tenantId = unitData.tenantId || 1;
   const query = `
     INSERT INTO units (
       economic_number,
@@ -162,8 +164,9 @@ export async function createUnit(unitData) {
       year,
       assigned_company_id,
       assigned_provider_id,
-      status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo')
+      status,
+      tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?)
   `;
   const params = [
     unitData.economic_number,
@@ -174,12 +177,13 @@ export async function createUnit(unitData) {
     unitData.model,
     unitData.year,
     unitData.assigned_company_id,
-    unitData.assigned_provider_id || null
+    unitData.assigned_provider_id || null,
+    tenantId
   ];
 
   try {
     const [result] = await conn.execute(query, params);
-    return { id: result.insertId, ...unitData, status: 'Activo' };
+    return { id: result.insertId, ...unitData, status: 'Activo', tenantId };
   } catch (error) {
     console.error('CREATE UNIT ERROR:', error);
     if (error.code === 'ER_DUP_ENTRY') {
@@ -295,8 +299,11 @@ export async function getAllContracts(filters = {}) {
 
   query += ` ORDER BY c.start_date DESC`;
 
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'c');
+
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET ALL CONTRACTS ERROR:', error);
@@ -344,25 +351,41 @@ export async function checkActiveContracts(unitId) {
   }
 }
 
-export async function getStats() {
+export async function getStats(tenantId = null) {
   const conn = await getConnection();
   try {
-    const [unitsResult] = await conn.execute('SELECT COUNT(*) as total FROM units');
-    const [activeContractsResult] = await conn.execute(`
+    // Query units con tenant opcional
+    let unitsQuery = 'SELECT COUNT(*) as total FROM units';
+    const { query: unitsQueryFinal, params: unitsParams } = applyTenantFilter(unitsQuery, [], tenantId);
+
+    // Query contracts con tenant opcional
+    let contractsQuery = `
       SELECT COUNT(*) as total
       FROM contracts
       WHERE end_date >= CURDATE() AND is_active = 1
-    `);
-    const [next30Result] = await conn.execute(`
+    `;
+    const { query: contractsQueryFinal, params: contractsParams } = applyTenantFilter(contractsQuery, [], tenantId);
+
+    // Query payments next30 con tenant opcional
+    let next30Query = `
       SELECT COUNT(*) as total
       FROM payments
       WHERE status = 'Pendiente' AND due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-    `);
-    const [overdueResult] = await conn.execute(`
+    `;
+    const { query: next30QueryFinal, params: next30Params } = applyTenantFilter(next30Query, [], tenantId);
+
+    // Query payments overdue con tenant opcional
+    let overdueQuery = `
       SELECT COUNT(*) as total
       FROM payments
       WHERE status = 'Pendiente' AND due_date < CURDATE()
-    `);
+    `;
+    const { query: overdueQueryFinal, params: overdueParams } = applyTenantFilter(overdueQuery, [], tenantId);
+
+    const [unitsResult] = await conn.execute(unitsQueryFinal, unitsParams);
+    const [activeContractsResult] = await conn.execute(contractsQueryFinal, contractsParams);
+    const [next30Result] = await conn.execute(next30QueryFinal, next30Params);
+    const [overdueResult] = await conn.execute(overdueQueryFinal, overdueParams);
 
     return {
       units: unitsResult[0].total,
@@ -433,6 +456,7 @@ export async function getPaymentsReport(filters = {}) {
 
 export async function createContract(contractData) {
   const conn = await getConnection();
+  const tenantId = contractData.tenantId || 1;
 
   const query = `
     INSERT INTO contracts (
@@ -443,8 +467,9 @@ export async function createContract(contractData) {
       start_date,
       end_date,
       term_months,
-      monthly_rent
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      monthly_rent,
+      tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
@@ -455,12 +480,13 @@ export async function createContract(contractData) {
     contractData.start_date,
     contractData.end_date,
     contractData.term_months,
-    contractData.monthly_rent
+    contractData.monthly_rent,
+    tenantId
   ];
 
   try {
     const [result] = await conn.execute(query, params);
-    return { id: result.insertId, ...contractData };
+    return { id: result.insertId, ...contractData, tenantId };
   } catch (error) {
     console.error('CREATE CONTRACT ERROR:', error);
     if (error.code === 'ER_DUP_ENTRY') {
@@ -518,8 +544,11 @@ export async function getContractsWithData(filters = {}) {
 
   query += ` ORDER BY c.start_date DESC`;
 
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'c');
+
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET CONTRACTS WITH DATA ERROR:', error);
@@ -656,6 +685,8 @@ export async function updateProviderStatus(providerId, newStatus) {
 
 export async function createPayment(paymentData) {
   const conn = await getConnection();
+  const tenantId = paymentData.tenantId || 1;
+
   const query = `
     INSERT INTO payments (
       contract_id,
@@ -665,8 +696,9 @@ export async function createPayment(paymentData) {
       payment_method,
       status,
       period,
-      type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      type,
+      tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const params = [
     paymentData.contract_id,
@@ -676,21 +708,22 @@ export async function createPayment(paymentData) {
     paymentData.payment_method || null,
     paymentData.status || 'Pendiente',
     paymentData.period || 'Manual',
-    paymentData.type || 'rent'
+    paymentData.type || 'rent',
+    tenantId
   ];
 
   try {
     const [result] = await conn.execute(query, params);
-    return { id: result.insertId, ...paymentData };
+    return { id: result.insertId, ...paymentData, tenantId };
   } catch (error) {
     console.error('CREATE PAYMENT ERROR:', error);
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }
 
-export async function getPaymentsByContract(contractId) {
+export async function getPaymentsByContract(contractId, filters = {}) {
   const conn = await getConnection();
-  const query = `
+  let query = `
     SELECT
       p.id,
       p.contract_id,
@@ -707,11 +740,14 @@ export async function getPaymentsByContract(contractId) {
     FROM payments p
     LEFT JOIN contracts c ON p.contract_id = c.id
     WHERE p.contract_id = ?
-    ORDER BY p.created_at DESC
   `;
+  let params = [contractId];
+
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'p');
 
   try {
-    const [rows] = await conn.execute(query, [contractId]);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET PAYMENTS BY CONTRACT ERROR:', error);
@@ -803,8 +839,11 @@ export async function getAllPayments(filters = {}) {
 
   query += ` ORDER BY p.created_at DESC`;
 
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'p');
+
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET ALL PAYMENTS ERROR:', error);
@@ -869,6 +908,560 @@ export async function getProviderStatement(providerId) {
     };
   } catch (error) {
     console.error('GET PROVIDER STATEMENT ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+// --- COMPANIES MODULE ---
+
+export async function getCompanies() {
+  const conn = await getConnection();
+  const query = `
+    SELECT id, name, status, created_at
+    FROM companies
+    ORDER BY name ASC
+  `;
+  try {
+    const [rows] = await conn.execute(query);
+    return rows;
+  } catch (error) {
+    console.error('GET COMPANIES ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function createCompany(name) {
+  const conn = await getConnection();
+  const query = `INSERT INTO companies (name, status) VALUES (?, 'Activo')`;
+  try {
+    const [result] = await conn.execute(query, [name]);
+    return { id: result.insertId, name, status: 'Activo' };
+  } catch (error) {
+    console.error('CREATE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateCompany(id, name) {
+  const conn = await getConnection();
+  const query = `UPDATE companies SET name = ? WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(query, [name, id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return { id, name };
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('UPDATE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateCompanyStatus(id, status) {
+  const conn = await getConnection();
+  const query = `UPDATE companies SET status = ? WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(query, [status, id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return { id, status };
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('UPDATE COMPANY STATUS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function deleteCompany(id) {
+  const conn = await getConnection();
+
+  // Check for assigned units first
+  const checkQuery = `SELECT COUNT(*) as count FROM units WHERE assigned_company_id = ?`;
+  const [rows] = await conn.execute(checkQuery, [id]);
+
+  if (rows[0].count > 0) {
+    throw new Error('COMPANY_HAS_UNITS');
+  }
+
+  const deleteQuery = `DELETE FROM companies WHERE id = ?`;
+  try {
+    const [result] = await conn.execute(deleteQuery, [id]);
+    if (result.affectedRows === 0) throw new Error('COMPANY_NOT_FOUND');
+    return true;
+  } catch (error) {
+    if (error.message === 'COMPANY_NOT_FOUND') throw error;
+    console.error('DELETE COMPANY ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function fixCompaniesSchema() {
+  const conn = await getConnection();
+  try {
+    // Intentar agregar columnas si no existen
+    // Nota: MySQL/TiDB no siempre soporta IF NOT EXISTS en ADD COLUMN en todas las versiones, 
+    // pero TiDB generalmente es compatible con MySQL 5.7/8.0.
+    // Lo haremos con try-catch por si ya existen.
+
+    try {
+      await conn.execute("ALTER TABLE companies ADD COLUMN status VARCHAR(50) DEFAULT 'Activo'");
+      console.log("Added status column");
+    } catch (e) {
+      console.log("Status column likely exists or error:", e.message);
+    }
+
+    try {
+      await conn.execute("ALTER TABLE companies ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+      console.log("Added created_at column");
+    } catch (e) {
+      console.log("created_at column likely exists or error:", e.message);
+    }
+
+    return { message: "Schema patched successfully" };
+  } catch (error) {
+    console.error('FIX SCHEMA ERROR:', error);
+    throw error;
+  }
+}
+
+// --- TENANTS ADMIN MODULE ---
+
+export async function getAllTenants(filters = {}) {
+  const conn = await getConnection();
+  let query = `
+    SELECT
+      id,
+      name,
+      slug,
+      status,
+      settings,
+      created_at,
+      updated_at,
+      deleted_at,
+      (
+        SELECT COUNT(*)
+        FROM users
+        WHERE users.tenant_id = tenants.id AND users.deleted_at IS NULL
+      ) as user_count,
+      (
+        SELECT COUNT(*)
+        FROM units
+        WHERE units.tenant_id = tenants.id
+      ) as unit_count,
+      (
+        SELECT COUNT(*)
+        FROM contracts
+        WHERE contracts.tenant_id = tenants.id
+      ) as contract_count
+    FROM tenants
+    WHERE 1=1
+  `;
+  let params = [];
+
+  if (filters.status) {
+    query += ` AND status = ?`;
+    params.push(filters.status);
+  }
+
+  if (filters.slug) {
+    query += ` AND slug = ?`;
+    params.push(filters.slug);
+  }
+
+  query += ` ORDER BY created_at DESC`;
+
+  try {
+    const [rows] = await conn.execute(query, params);
+    return rows;
+  } catch (error) {
+    console.error('GET ALL TENANTS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function getTenantById(tenantId) {
+  const conn = await getConnection();
+  const query = `
+    SELECT
+      id,
+      name,
+      slug,
+      status,
+      settings,
+      created_at,
+      updated_at,
+      deleted_at
+    FROM tenants
+    WHERE id = ?
+  `;
+
+  try {
+    const [rows] = await conn.execute(query, [tenantId]);
+    if (rows.length === 0) {
+      throw new Error('TENANT_NOT_FOUND');
+    }
+    return rows[0];
+  } catch (error) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      throw error;
+    }
+    console.error('GET TENANT BY ID ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function createTenant(tenantData) {
+  const conn = await getConnection();
+  const query = `
+    INSERT INTO tenants (
+      name,
+      slug,
+      status,
+      settings
+    ) VALUES (?, ?, 'active', ?)
+  `;
+  const params = [
+    tenantData.name,
+    tenantData.slug,
+    tenantData.settings ? JSON.stringify(tenantData.settings) : null
+  ];
+
+  try {
+    const [result] = await conn.execute(query, params);
+    return {
+      id: result.insertId,
+      ...tenantData,
+      status: 'active'
+    };
+  } catch (error) {
+    console.error('CREATE TENANT ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message.includes('slug')) {
+        throw new Error('DUPLICATE_SLUG');
+      }
+    }
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateTenant(tenantId, tenantData) {
+  const conn = await getConnection();
+  const query = `
+    UPDATE tenants
+    SET name = ?, slug = ?, settings = ?
+    WHERE id = ?
+  `;
+  const params = [
+    tenantData.name,
+    tenantData.slug,
+    tenantData.settings ? JSON.stringify(tenantData.settings) : null,
+    tenantId
+  ];
+
+  try {
+    const [result] = await conn.execute(query, params);
+    if (result.affectedRows === 0) {
+      throw new Error('TENANT_NOT_FOUND');
+    }
+    return { id: tenantId, ...tenantData };
+  } catch (error) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      throw error;
+    }
+    console.error('UPDATE TENANT ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message.includes('slug')) {
+        throw new Error('DUPLICATE_SLUG');
+      }
+    }
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateTenantStatus(tenantId, newStatus) {
+  const conn = await getConnection();
+  let additionalUpdates = 'updated_at = CURRENT_TIMESTAMP';
+
+  if (newStatus === 'deleted') {
+    additionalUpdates += ', deleted_at = CURRENT_TIMESTAMP';
+  }
+
+  const query = `
+    UPDATE tenants
+    SET status = ?, ${additionalUpdates}
+    WHERE id = ?
+  `;
+
+  try {
+    const [result] = await conn.execute(query, [newStatus, tenantId]);
+    if (result.affectedRows === 0) {
+      throw new Error('TENANT_NOT_FOUND');
+    }
+    return { id: tenantId, status: newStatus };
+  } catch (error) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      throw error;
+    }
+    console.error('UPDATE TENANT STATUS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function getTenantMetrics(tenantId) {
+  const conn = await getConnection();
+  const queries = [
+    'SELECT COUNT(*) as count FROM users WHERE tenant_id = ? AND deleted_at IS NULL',
+    'SELECT COUNT(*) as count FROM units WHERE tenant_id = ?',
+    'SELECT COUNT(*) as count FROM contracts WHERE tenant_id = ?',
+    'SELECT COUNT(*) as count FROM payments WHERE tenant_id = ?'
+  ];
+
+  try {
+    const [users] = await conn.execute(queries[0], [tenantId]);
+    const [units] = await conn.execute(queries[1], [tenantId]);
+    const [contracts] = await conn.execute(queries[2], [tenantId]);
+    const [payments] = await conn.execute(queries[3], [tenantId]);
+
+    return {
+      users: users[0].count,
+      units: units[0].count,
+      contracts: contracts[0].count,
+      payments: payments[0].count
+    };
+  } catch (error) {
+    console.error('GET TENANT METRICS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+// --- USERS MODULE ---
+
+export async function getAllUsers(filters = {}) {
+  const conn = await getConnection();
+  let query = `
+    SELECT
+      id,
+      email,
+      name,
+      role,
+      tenant_id,
+      status,
+      last_login,
+      created_at,
+      updated_at,
+      deleted_at
+    FROM users
+    WHERE 1=1
+  `;
+  let params = [];
+
+  if (filters.tenantId) {
+    query += ` AND tenant_id = ?`;
+    params.push(filters.tenantId);
+  }
+
+  if (filters.status) {
+    query += ` AND status = ?`;
+    params.push(filters.status);
+  }
+
+  if (filters.role) {
+    query += ` AND role = ?`;
+    params.push(filters.role);
+  }
+
+  query += ` ORDER BY created_at DESC`;
+
+  try {
+    const [rows] = await conn.execute(query, params);
+    return rows;
+  } catch (error) {
+    console.error('GET ALL USERS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function getUserById(userId) {
+  const conn = await getConnection();
+  const query = `
+    SELECT
+      id,
+      email,
+      name,
+      role,
+      tenant_id,
+      status,
+      last_login,
+      created_at,
+      updated_at
+    FROM users
+    WHERE id = ? AND deleted_at IS NULL
+  `;
+
+  try {
+    const [rows] = await conn.execute(query, [userId]);
+    if (rows.length === 0) {
+      throw new Error('USER_NOT_FOUND');
+    }
+    return rows[0];
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') {
+      throw error;
+    }
+    console.error('GET USER BY ID ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function getUserByEmail(email) {
+  const conn = await getConnection();
+  const query = `
+    SELECT
+      id,
+      email,
+      password_hash,
+      name,
+      role,
+      tenant_id,
+      status
+    FROM users
+    WHERE email = ? AND deleted_at IS NULL
+  `;
+
+  try {
+    const [rows] = await conn.execute(query, [email]);
+    return rows[0] || null;
+  } catch (error) {
+    console.error('GET USER BY EMAIL ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function createUser(userData) {
+  const conn = await getConnection();
+  const query = `
+    INSERT INTO users (
+      email,
+      password_hash,
+      name,
+      role,
+      tenant_id
+    ) VALUES (?, ?, ?, ?, ?)
+  `;
+  const params = [
+    userData.email,
+    userData.password_hash,
+    userData.name,
+    userData.role || 'user',
+    userData.tenant_id
+  ];
+
+  try {
+    const [result] = await conn.execute(query, params);
+    return {
+      id: result.insertId,
+      ...userData,
+      role: userData.role || 'user',
+      status: 'active'
+    };
+  } catch (error) {
+    console.error('CREATE USER ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message.includes('email')) {
+        throw new Error('DUPLICATE_EMAIL');
+      }
+    }
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateUser(userId, userData) {
+  const conn = await getConnection();
+  const updates = [];
+  const params = [];
+
+  if (userData.email) {
+    updates.push('email = ?');
+    params.push(userData.email);
+  }
+  if (userData.name) {
+    updates.push('name = ?');
+    params.push(userData.name);
+  }
+  if (userData.role) {
+    updates.push('role = ?');
+    params.push(userData.role);
+  }
+  if (userData.password_hash) {
+    updates.push('password_hash = ?');
+    params.push(userData.password_hash);
+  }
+
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  params.push(userId);
+
+  const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+
+  try {
+    const [result] = await conn.execute(query, params);
+    if (result.affectedRows === 0) {
+      throw new Error('USER_NOT_FOUND');
+    }
+    return { id: userId, ...userData };
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') {
+      throw error;
+    }
+    console.error('UPDATE USER ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message.includes('email')) {
+        throw new Error('DUPLICATE_EMAIL');
+      }
+    }
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateUserStatus(userId, newStatus) {
+  const conn = await getConnection();
+  let additionalUpdates = 'updated_at = CURRENT_TIMESTAMP';
+
+  if (newStatus === 'deleted') {
+    additionalUpdates += ', deleted_at = CURRENT_TIMESTAMP';
+  }
+
+  const query = `
+    UPDATE users
+    SET status = ?, ${additionalUpdates}
+    WHERE id = ?
+  `;
+
+  try {
+    const [result] = await conn.execute(query, [newStatus, userId]);
+    if (result.affectedRows === 0) {
+      throw new Error('USER_NOT_FOUND');
+    }
+    return { id: userId, status: newStatus };
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') {
+      throw error;
+    }
+    console.error('UPDATE USER STATUS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
+export async function updateLastLogin(userId) {
+  const conn = await getConnection();
+  const query = `
+    UPDATE users
+    SET last_login = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `;
+
+  try {
+    await conn.execute(query, [userId]);
+    return true;
+  } catch (error) {
+    console.error('UPDATE LAST LOGIN ERROR:', error);
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }
