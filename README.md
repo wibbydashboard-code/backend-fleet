@@ -1,154 +1,92 @@
-# PCAS Fleet Management Backend
+# PCAS Fleet Management - Backend
 
-Backend API para Fleet Management con soporte multi-tenant y autenticación RBAC.
+Backend API for Fleet Management System with multi-tenant support.
 
-## Tecnologías
+## Setup
 
-- Node.js 20.x
-- Express.js 4.18.2
-- MySQL2 (TiDB Cloud)
-- JWT Authentication
-- Winston (Logging)
+### Environment Variables
 
-## Variables de Entorno (Render)
+Configure these variables in Render:
 
-Estas variables deben configurarse en el panel de Render:
-
-```env
+```
 DB_HOST=tidb-cloud-host
 DB_PORT=4000
 DB_USER=your-tidb-user
 DB_PASSWORD=your-tidb-password
 DB_NAME=fleet_db
+DB_SSL=true
 JWT_SECRET=generate-strong-random-string-min-32-chars
-JWT_EXPIRES_IN=24h
-PORT=3000
 NODE_ENV=production
+PORT=3000
 ```
 
-## Instalación y Despliegue
+### Local Development
 
-### Local
 ```bash
 npm install
-node server.js
+cp .env.example .env
+# Edit .env with your local DB credentials
+npm start
 ```
 
-### Render (Automático)
-El despliegue es automático desde GitHub. Render leerá:
-- `package.json` → ejecuta `npm install`
-- `render.yaml` → configura el servicio
-- `node server.js` → inicia el servidor
+### Deploy to Render
 
-## Archivos Incluidos
+1. Push this repository to GitHub
+2. Create a new Web Service in Render
+3. Connect your GitHub repository
+4. Render will automatically install dependencies and start with `node server.js`
+5. Add environment variables in Render dashboard
 
-- **server.js**: Servidor Express principal
-- **repository.js**: Capa de acceso a datos (TiDB Cloud)
-- **authService.js**: JWT y autenticación
-- **requireAuth.js**: Middleware de autenticación
-- **requireRole.js**: Middleware RBAC
-- **resolveTenant.js**: Middleware de tenant isolation
-- **permissions.js**: Sistema de permisos
-- **roleUtils.js**: Helper de roles
-- **auditLogger.js**: Logging de auditoría
-- **tenantHelper.js**: Helper de tenants
-- **tenantMiddleware.js**: Middleware de tenants
-- **bulkUploadService.js**: Carga masiva de unidades
-- **excelGenerator.js**: Generación de reportes Excel
-- **financialService.js**: Cálculos financieros
-- **errorHandler.js**: Manejo centralizado de errores
-- **errors.js**: Definición de errores
-- **logger.js**: Winston logger
-- **rateLimiter.js**: Rate limiting
-- **helmet**: Security headers (configurado en server.js)
-- **render.yaml**: Configuración de despliegue en Render
-- **.env.example**: Ejemplo de variables de entorno
-- **package.json**: Dependencias y scripts
-- **package-lock.json**: Versiones de dependencias
+## API Endpoints
 
-## Endpoints
+### Auth
+- `POST /api/auth/login` - User login
 
-### Autenticación
-- `POST /api/auth/login` - Inicio de sesión
+### Units
+- `GET /api/units` - Get all units
+- `POST /api/units` - Create unit
+- `PUT /api/units/:id/status` - Update unit status
+- `GET /api/units/template` - Download Excel template
+- `POST /api/units/batch-upload` - Bulk upload units
 
-### Unidades
-- `GET /api/units` - Listar unidades (requiere auth + role)
-- `POST /api/units` - Crear unidad
-- `PUT /api/units/:id/status` - Actualizar estatus
-- `GET /api/units/template` - Descargar plantilla Excel
-- `POST /api/units/batch-upload` - Carga masiva
+### Contracts
+- `GET /api/contracts` - Get all contracts
+- `POST /api/contracts` - Create contract
+- `POST /api/contracts/:id/upload` - Upload contract PDF
 
-### Contratos
-- `GET /api/contracts` - Listar contratos (requiere auth + role)
-- `POST /api/contracts` - Crear contrato
-- `GET /api/contracts/complete` - Listar con datos completos
-- `POST /api/contracts/:id/upload` - Subir PDF
+### Payments
+- `GET /api/payments` - Get all payments
+- `POST /api/payments` - Create payment
+- `PUT /api/payments/:id/status` - Update payment status
+- `POST /api/payments/:id/upload` - Upload payment receipt
 
-### Pagos
-- `GET /api/payments` - Listar pagos (requiere auth + role)
-- `POST /api/payments` - Crear pago
-- `PUT /api/payments/:id/status` - Actualizar estatus
-- `POST /api/payments/:id/upload` - Subir PDF
-- `GET /api/payments/report` - Reporte de pagos
+### Providers
+- `GET /api/providers` - Get all providers
+- `POST /api/providers` - Create provider
+- `PUT /api/providers/:id` - Update provider
+- `PUT /api/providers/:id/status` - Update provider status
 
-### Proveedores
-- `GET /api/providers` - Listar proveedores
-- `POST /api/providers` - Crear proveedor
-- `PUT /api/providers/:id` - Actualizar proveedor
-- `PUT /api/providers/:id/status` - Actualizar estatus
-- `GET /api/providers/:id/statement` - Estado de cuenta
+### Companies
+- `GET /api/companies` - Get all companies
+- `POST /api/companies` - Create company
+- `PUT /api/companies/:id` - Update company
+- `PUT /api/companies/:id/status` - Update company status
+- `DELETE /api/companies/:id` - Delete company
 
-### Empresas
-- `GET /api/companies` - Listar empresas
-- `POST /api/companies` - Crear empresa
-- `PUT /api/companies/:id` - Actualizar empresa
-- `PUT /api/companies/:id/status` - Actualizar estatus
-- `DELETE /api/companies/:id` - Eliminar empresa
+### Admin (requires admin role)
+- `GET /api/admin/tenants` - List tenants
+- `POST /api/admin/tenants` - Create tenant
+- `PATCH /api/admin/tenants/:id` - Update tenant
+- `GET /api/admin/users` - List users
+- `POST /api/admin/users` - Create user
+- `PATCH /api/admin/users/:id` - Update user
 
-### Admin (Solo admin)
-- `GET /api/admin/tenants` - Listar tenants
-- `POST /api/admin/tenants` - Crear tenant
-- `GET /api/admin/tenants/:id/metrics` - Métricas de tenant
-- `PATCH /api/admin/tenants/:id` - Actualizar tenant
-- `GET /api/admin/users` - Listar usuarios
-- `POST /api/admin/users` - Crear usuario
-- `PATCH /api/admin/users/:id` - Actualizar usuario
+### Reports
+- `POST /api/reports/estado-cuenta` - Generate account statement (Excel)
+- `GET /api/stats` - Get dashboard stats
+- `GET /api/payments/report` - Get payments report
 
-## Seguridad
+## Requirements
 
-- **Autenticación**: JWT (jsonwebtoken)
-- **RBAC**: Roles (admin, user, viewer) con permisos
-- **Tenant Isolation**: Filtrado por tenant_id
-- **Rate Limiting**: Express-rate-limit
-- **Security Headers**: Helmet
-- **Audit Logs**: Todos los accesos registrados
-
-## Multi-Tenancy
-
-El sistema soporta múltiples tenants con:
-- Aislamiento de datos por tenant_id
-- Middleware de resolución de tenant (JWT → header → null)
-- Fallback automático para compatibilidad
-- Métricas por tenant
-
-## Logs
-
-- **Winston**: Logging estructurado en consola y archivo
-- **Audit Logs**: Tabla `audit_logs` en TiDB Cloud
-- **Error Handling**: Centralizado en `errorHandler.js`
-
-## Build Status
-
-Render ejecutará automáticamente:
-```bash
-npm install
-node server.js
-```
-
-El servidor escuchará en el puerto especificado por `process.env.PORT` (default: 3000).
-
-## Versión
-
-- Backend: v1.0.0
-- Node.js: 20.x
-- Fecha: 2026-01-10
+- Node.js 20.x
+- MySQL/TiDB database
