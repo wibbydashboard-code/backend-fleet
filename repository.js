@@ -150,6 +150,53 @@ export async function getAllUnits(filters = {}) {
   }
 }
 
+export async function checkExistingUnits(economicNumbers, licensePlates, tenantId = 1) {
+  const conn = await getConnection();
+  if ((!economicNumbers || economicNumbers.length === 0) && (!licensePlates || licensePlates.length === 0)) {
+    return [];
+  }
+
+  // Clean arrays
+  const cleanEcos = economicNumbers ? economicNumbers.filter(e => e).map(e => String(e)) : [];
+  const cleanPlates = licensePlates ? licensePlates.filter(p => p).map(p => String(p)) : [];
+
+  if (cleanEcos.length === 0 && cleanPlates.length === 0) return [];
+
+  let conditions = [];
+  let params = [];
+
+  if (cleanEcos.length > 0) {
+    // Create placeholders (?, ?, ?)
+    const placeholders = cleanEcos.map(() => '?').join(',');
+    conditions.push(`economic_number IN (${placeholders})`);
+    params.push(...cleanEcos);
+  }
+
+  if (cleanPlates.length > 0) {
+    const placeholders = cleanPlates.map(() => '?').join(',');
+    conditions.push(`license_plate IN (${placeholders})`);
+    params.push(...cleanPlates);
+  }
+
+  let whereClause = conditions.join(' OR ');
+
+  let query = `SELECT economic_number, license_plate FROM units WHERE (${whereClause})`;
+
+  if (tenantId) {
+    query += ` AND tenant_id = ?`;
+    params.push(tenantId);
+  }
+
+  try {
+    const [rows] = await conn.execute(query, params);
+    return rows;
+  } catch (error) {
+    console.error('CHECK EXISTING UNITS ERROR:', error);
+    throw new Error('DB_ERROR');
+  }
+}
+
+
 export async function createUnit(unitData) {
   const conn = await getConnection();
   const tenantId = unitData.tenantId || 1;
@@ -938,6 +985,9 @@ export async function createCompany(name) {
     return { id: result.insertId, name, status: 'Activo' };
   } catch (error) {
     console.error('CREATE COMPANY ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw new Error('DUPLICATE_COMPANY_NAME');
+    }
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }
@@ -952,6 +1002,9 @@ export async function updateCompany(id, name) {
   } catch (error) {
     if (error.message === 'COMPANY_NOT_FOUND') throw error;
     console.error('UPDATE COMPANY ERROR:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw new Error('DUPLICATE_COMPANY_NAME');
+    }
     throw new Error('DB_INTEGRITY_ERROR');
   }
 }

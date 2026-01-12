@@ -1,0 +1,23 @@
+{
+    "name": "PCAS – Fleet Management",
+    "short_name": "PCAS",
+    "description": "Plataforma de Control Administrativo y Seguimiento para flotas. Control financiero, operativo y administrativo multiempresa.",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#002060",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "/assets/icons/icon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/assets/icons/icon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

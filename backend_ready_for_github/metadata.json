@@ -1,0 +1,5 @@
+{
+  "name": "PCAS - Fleet Management",
+  "description": "A web application to centralize and automate the administrative, financial, and documentary control of a fleet of leased vehicles. It provides a dashboard with KPIs, management of units, contracts, and payments, and dynamic reporting.",
+  "requestFramePermissions": []
+}

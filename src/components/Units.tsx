@@ -446,24 +446,46 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                  <div className="bg-slate-100 p-2 rounded">Total <div className="font-bold text-lg">{batchResult.total}</div></div>
-                  <div className="bg-green-100 p-2 rounded text-green-800">Insertados <div className="font-bold text-lg">{batchResult.inserted}</div></div>
-                  <div className="bg-red-100 p-2 rounded text-red-800">Fallidos <div className="font-bold text-lg">{batchResult.failed}</div></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center mb-4">
+                  <div className="bg-slate-100 p-2 rounded">
+                    <div className="text-xs text-slate-500 uppercase">Total</div>
+                    <div className="font-bold text-lg">{batchResult.total}</div>
+                  </div>
+                  <div className="bg-green-100 p-2 rounded text-green-800">
+                    <div className="text-xs opacity-75 uppercase">Insertados</div>
+                    <div className="font-bold text-lg">{batchResult.inserted}</div>
+                  </div>
+                  <div className="bg-red-100 p-2 rounded text-red-800">
+                    <div className="text-xs opacity-75 uppercase">Fallidos</div>
+                    <div className="font-bold text-lg">{batchResult.failed}</div>
+                  </div>
+                  <div className="bg-yellow-50 p-2 rounded text-yellow-800">
+                    <div className="text-xs opacity-75 uppercase">Duplicados</div>
+                    <div className="font-bold text-sm">
+                      Excel: {batchResult.duplicados_en_excel || 0} <br />
+                      BD: {batchResult.duplicados_en_bd || 0}
+                    </div>
+                  </div>
                 </div>
 
                 {batchResult.errors.length > 0 && (
                   <div className="border rounded bg-slate-50 p-2 max-h-60 overflow-y-auto text-sm">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left border-collapse">
                       <thead className="text-xs text-slate-500 uppercase bg-slate-100 sticky top-0">
-                        <tr><th>Fila</th><th>Eco</th><th>Error</th></tr>
+                        <tr>
+                          <th className="p-2 border-b">Fila</th>
+                          <th className="p-2 border-b">Campo</th>
+                          <th className="p-2 border-b">Valor</th>
+                          <th className="p-2 border-b">Motivo</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {batchResult.errors.map((err, idx) => (
-                          <tr key={idx} className="border-b last:border-0">
-                            <td className="py-1 px-1 font-mono text-xs">{err.row}</td>
-                            <td className="py-1 px-1 font-mono text-xs">{err.economic_number || '-'}</td>
-                            <td className="py-1 px-1 text-red-600">{err.message}</td>
+                          <tr key={idx} className="border-b last:border-0 hover:bg-slate-100">
+                            <td className="p-2 font-mono text-xs">{err.row}</td>
+                            <td className="p-2 text-xs">{err.campo || '-'}</td>
+                            <td className="p-2 font-mono text-xs text-slate-600">{err.valor || '-'}</td>
+                            <td className="p-2 text-red-600 text-xs">{err.motivo || err.message}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -473,7 +495,7 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
                 <div className="flex justify-end pt-4">
                   <button
                     onClick={() => { setShowBatchModal(false); setBatchResult(null); setBatchFile(null); load(); }}
-                    className="bg-slate-800 text-white px-4 py-2 rounded"
+                    className="bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-700"
                   >
                     Cerrar
                   </button>

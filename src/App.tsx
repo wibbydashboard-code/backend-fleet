@@ -2,6 +2,8 @@
 import React, { useState, useCallback } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Login } from '@/components/Login';
+import { AuthProvider, useAuth } from '@/components/AuthProvider';
 import Dashboard from '@/components/Dashboard';
 import { Units } from '@/components/Units';
 import { ContractsView } from '@/components/ContractsView';
@@ -23,7 +25,8 @@ const viewTitles: Record<ViewType, string> = {
   reportes: 'Reportes y Analíticas',
 };
 
-export default function App() {
+function AppContent() {
+  const { isAuthenticated, loading, logout } = useAuth();
   const [activeView, setActiveView] = useState<ViewType>('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
@@ -37,6 +40,18 @@ export default function App() {
     setIsModalOpen(false);
     setSelectedUnit(null);
   }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="text-slate-600">Cargando...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
 
   const renderContent = () => {
     switch (activeView) {
@@ -53,9 +68,9 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+      <Sidebar activeView={activeView} setActiveView={setActiveView} logout={logout} />
       <main className="flex-1 flex flex-col overflow-hidden">
-        <Header title={viewTitles[activeView]} />
+        <Header title={viewTitles[activeView]} logout={logout} />
         <div className="flex-1 overflow-y-auto p-6">
           {renderContent()}
         </div>
@@ -64,5 +79,13 @@ export default function App() {
         <UnitDetailModal unit={selectedUnit} onClose={handleCloseModal} />
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

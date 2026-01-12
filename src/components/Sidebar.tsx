@@ -5,6 +5,7 @@ import { PcasLogo, DashboardIcon, UnitsIcon, ContractsIcon, ReportsIcon, Provide
 interface SidebarProps {
   activeView: ViewType;
   setActiveView: (view: ViewType) => void;
+  logout: () => void;
 }
 
 const navItems = [
@@ -17,7 +18,7 @@ const navItems = [
   { id: 'reportes', label: 'Reportes', icon: <ReportsIcon /> },
 ] as const;
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, logout }) => {
   return (
     <aside className="sidebar w-64 bg-slate-800 text-white flex flex-col flex-shrink-0">
       <div className="flex items-center justify-center h-16 border-b border-slate-700 px-2">
@@ -49,7 +50,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) =
           <img className="h-10 w-10 rounded-full" src="https://picsum.photos/100" alt="Avatar de usuario" />
           <div className="ml-3">
             <p className="text-sm font-medium text-white">Administrador</p>
-            <a href="#" className="text-xs text-slate-400 hover:text-white">Cerrar Sesión</a>
+            <button
+              onClick={logout}
+              className="text-xs text-slate-400 hover:text-white"
+            >
+              Cerrar Sesión
+            </button>
           </div>
         </div>
       </div>

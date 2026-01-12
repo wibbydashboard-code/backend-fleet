@@ -185,7 +185,8 @@ app.post('/api/units/batch-upload', uploadExcel.single('file'), async (req, res)
   if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo' });
 
   try {
-    const results = await processBatchUpload(req.file.path);
+    const tenantId = req.tenantId || 1; // Default to 1 if not set
+    const results = await processBatchUpload(req.file.path, tenantId);
     // Limpiar archivo temporal
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.json(results);
@@ -269,56 +270,56 @@ app.get('/api/stats', async (req, res) => {
 });
 
 console.log('>> registrando /api/units');
- app.get('/api/units', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
-   try {
-     const { q, status, company } = req.query;
+app.get('/api/units', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+  try {
+    const { q, status, company } = req.query;
 
-     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
-     let tenantId = req.tenantId;
+    // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+    let tenantId = req.tenantId;
 
-     // PRIORIDAD 2: query param tenantId (fallback)
-     if (!tenantId && req.query.tenantId) {
-       tenantId = parseInt(req.query.tenantId);
-     }
+    // PRIORIDAD 2: query param tenantId (fallback)
+    if (!tenantId && req.query.tenantId) {
+      tenantId = parseInt(req.query.tenantId);
+    }
 
-     // PRIORIDAD 3: header x-tenant-id (fallback)
-     if (!tenantId && req.headers['x-tenant-id']) {
-       tenantId = parseInt(req.headers['x-tenant-id']);
-     }
+    // PRIORIDAD 3: header x-tenant-id (fallback)
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id']);
+    }
 
-     const filters = { q, status, company };
-     if (tenantId) {
-       filters.tenantId = tenantId;
-     }
+    const filters = { q, status, company };
+    if (tenantId) {
+      filters.tenantId = tenantId;
+    }
 
-     const units = await getAllUnits(filters);
+    const units = await getAllUnits(filters);
 
-     // Logging en audit_logs
-     const logMetadata = {
-       endpoint: 'GET /api/units',
-       tenantId: tenantId,
-       tenantSource: req.tenantSource || 'query_param',
-       result: units.length > 0 ? 'OK' : 'empty',
-       units_count: units.length
-     };
+    // Logging en audit_logs
+    const logMetadata = {
+      endpoint: 'GET /api/units',
+      tenantId: tenantId,
+      tenantSource: req.tenantSource || 'query_param',
+      result: units.length > 0 ? 'OK' : 'empty',
+      units_count: units.length
+    };
 
-     if (tenantId) {
-       await auditLogger.log({
-         userId: req.user?.userId || null,
-         tenantId,
-         action: 'access_units',
-         entity: 'unit',
-         metadata: logMetadata,
-         req
-       });
-     }
+    if (tenantId) {
+      await auditLogger.log({
+        userId: req.user?.userId || null,
+        tenantId,
+        action: 'access_units',
+        entity: 'unit',
+        metadata: logMetadata,
+        req
+      });
+    }
 
-     res.json({ ok: true, data: units });
-   } catch (error) {
-     console.error(error);
-     res.status(500).json({ error: 'Internal server error' });
-   }
- });
+    res.json({ ok: true, data: units });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 console.log('>> registrando POST /api/units');
 app.post('/api/units', async (req, res) => {
@@ -451,55 +452,55 @@ async function getUpcomingExpirations() {
 }
 
 console.log('>> registrando GET /api/contracts');
- app.get('/api/contracts', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
-   try {
-     const { unit_id, company_id } = req.query;
+app.get('/api/contracts', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+  try {
+    const { unit_id, company_id } = req.query;
 
-     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
-     let tenantId = req.tenantId;
+    // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+    let tenantId = req.tenantId;
 
-     // PRIORIDAD 2: query param tenantId (fallback)
-     if (!tenantId && req.query.tenantId) {
-       tenantId = parseInt(req.query.tenantId);
-     }
+    // PRIORIDAD 2: query param tenantId (fallback)
+    if (!tenantId && req.query.tenantId) {
+      tenantId = parseInt(req.query.tenantId);
+    }
 
-     // PRIORIDAD 3: header x-tenant-id (fallback)
-     if (!tenantId && req.headers['x-tenant-id']) {
-       tenantId = parseInt(req.headers['x-tenant-id']);
-     }
+    // PRIORIDAD 3: header x-tenant-id (fallback)
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id']);
+    }
 
-     const filters = { unit_id, company_id };
-     if (tenantId) {
-       filters.tenantId = tenantId;
-     }
+    const filters = { unit_id, company_id };
+    if (tenantId) {
+      filters.tenantId = tenantId;
+    }
 
-     const contracts = await getAllContracts(filters);
+    const contracts = await getAllContracts(filters);
 
-     // Logging en audit_logs
-     const logMetadata = {
-       endpoint: 'GET /api/contracts',
-       tenantId: tenantId,
-       tenantSource: req.tenantSource || 'query_param',
-       result: contracts.length > 0 ? 'OK' : 'empty',
-       contracts_count: contracts.length
-     };
+    // Logging en audit_logs
+    const logMetadata = {
+      endpoint: 'GET /api/contracts',
+      tenantId: tenantId,
+      tenantSource: req.tenantSource || 'query_param',
+      result: contracts.length > 0 ? 'OK' : 'empty',
+      contracts_count: contracts.length
+    };
 
-     if (tenantId) {
-       await auditLogger.log({
-         userId: req.user?.userId || null,
-         tenantId,
-         action: 'access_contracts',
-         entity: 'contract',
-         metadata: logMetadata,
-         req
-       });
-     }
+    if (tenantId) {
+      await auditLogger.log({
+        userId: req.user?.userId || null,
+        tenantId,
+        action: 'access_contracts',
+        entity: 'contract',
+        metadata: logMetadata,
+        req
+      });
+    }
 
-     res.json({ ok: true, data: contracts });
-   } catch (error) {
-     console.error(error);
-     res.status(500).json({ error: 'Internal server error' });
-   }
+    res.json({ ok: true, data: contracts });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 console.log('>> registrando GET /api/payments/report');
@@ -811,55 +812,55 @@ app.post('/api/payments', async (req, res) => {
 });
 
 console.log('>> registrando GET /api/payments');
- app.get('/api/payments', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
-   try {
-     const { contract_id, status } = req.query;
+app.get('/api/payments', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
+  try {
+    const { contract_id, status } = req.query;
 
-     // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
-     let tenantId = req.tenantId;
+    // PRIORIDAD 1: tenantId desde middleware resolveTenant (JWT)
+    let tenantId = req.tenantId;
 
-     // PRIORIDAD 2: query param tenantId (fallback)
-     if (!tenantId && req.query.tenantId) {
-       tenantId = parseInt(req.query.tenantId);
-     }
+    // PRIORIDAD 2: query param tenantId (fallback)
+    if (!tenantId && req.query.tenantId) {
+      tenantId = parseInt(req.query.tenantId);
+    }
 
-     // PRIORIDAD 3: header x-tenant-id (fallback)
-     if (!tenantId && req.headers['x-tenant-id']) {
-       tenantId = parseInt(req.headers['x-tenant-id']);
-     }
+    // PRIORIDAD 3: header x-tenant-id (fallback)
+    if (!tenantId && req.headers['x-tenant-id']) {
+      tenantId = parseInt(req.headers['x-tenant-id']);
+    }
 
-     const filters = { contract_id, status };
-     if (tenantId) {
-       filters.tenantId = tenantId;
-     }
+    const filters = { contract_id, status };
+    if (tenantId) {
+      filters.tenantId = tenantId;
+    }
 
-     const payments = await getAllPayments(filters);
+    const payments = await getAllPayments(filters);
 
-     // Logging en audit_logs
-     const logMetadata = {
-       endpoint: 'GET /api/payments',
-       tenantId: tenantId,
-       tenantSource: req.tenantSource || 'query_param',
-       result: payments.length > 0 ? 'OK' : 'empty',
-       payments_count: payments.length
-     };
+    // Logging en audit_logs
+    const logMetadata = {
+      endpoint: 'GET /api/payments',
+      tenantId: tenantId,
+      tenantSource: req.tenantSource || 'query_param',
+      result: payments.length > 0 ? 'OK' : 'empty',
+      payments_count: payments.length
+    };
 
-     if (tenantId) {
-       await auditLogger.log({
-         userId: req.user?.userId || null,
-         tenantId,
-         action: 'access_payments',
-         entity: 'payment',
-         metadata: logMetadata,
-         req
-       });
-     }
+    if (tenantId) {
+      await auditLogger.log({
+        userId: req.user?.userId || null,
+        tenantId,
+        action: 'access_payments',
+        entity: 'payment',
+        metadata: logMetadata,
+        req
+      });
+    }
 
-     res.json({ ok: true, data: payments });
-   } catch (error) {
-     console.error(error);
-     res.status(500).json({ error: 'Internal server error' });
-   }
+    res.json({ ok: true, data: payments });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 console.log('>> registrando GET /api/payments/by-contract/:id');
@@ -969,6 +970,12 @@ app.post('/api/companies', async (req, res) => {
     res.status(201).json({ ok: true, data: company });
   } catch (error) {
     console.error(error);
+    if (error.message === 'DUPLICATE_COMPANY_NAME') {
+      return res.status(409).json({
+        error: 'EMPRESA_DUPLICADA',
+        message: 'Ya existe una empresa con ese nombre'
+      });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -995,6 +1002,12 @@ app.put('/api/companies/:id', async (req, res) => {
   } catch (error) {
     console.error(error);
     if (error.message === 'COMPANY_NOT_FOUND') return res.status(404).json({ error: 'Company not found' });
+    if (error.message === 'DUPLICATE_COMPANY_NAME') {
+      return res.status(409).json({
+        error: 'EMPRESA_DUPLICADA',
+        message: 'Ya existe una empresa con ese nombre'
+      });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -2,6 +2,30 @@ const API_BASE = import.meta.env.PROD
   ? 'https://backend-fleet.onrender.com/api'
   : 'http://localhost:3000/api';
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const response = await fetch(url, options);
+
+  if (response.status === 401 || response.status === 403) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/';
+    throw new Error('Sesión expirada. Inicia sesión nuevamente.');
+  }
+
+  return response;
+}
+
 export type StatsResponse = {
   ok: boolean;
   stats: {
@@ -19,7 +43,9 @@ export type StatsResponse = {
 };
 
 export async function getStats(): Promise<StatsResponse> {
-  const res = await fetch(`${API_BASE}/stats`);
+  const res = await fetchWithAuth(`${API_BASE}/stats`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching stats');
   return await res.json();
 }
@@ -45,7 +71,9 @@ export async function getUnits(params: { q?: string; status?: string; company?: 
   if (params.status) url.searchParams.append('status', params.status);
   if (params.company) url.searchParams.append('company', params.company);
 
-  const res = await fetch(url.toString());
+  const res = await fetchWithAuth(url.toString(), {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching units');
   const data = await res.json();
   return data.data || [];
@@ -66,7 +94,7 @@ export type CreateUnitRequest = {
 export async function createUnit(data: CreateUnitRequest): Promise<UnitRow> {
   const res = await fetch(`${API_BASE}/units`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) {
@@ -80,7 +108,7 @@ export async function createUnit(data: CreateUnitRequest): Promise<UnitRow> {
 export async function updateUnitStatus(unitId: number, status: 'Activo' | 'Baja'): Promise<UnitRow> {
   const res = await fetch(`${API_BASE}/units/${unitId}/status`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ status })
   });
   if (!res.ok) {
@@ -140,7 +168,9 @@ export type ContractRow = {
 };
 
 export async function getContracts(): Promise<ContractRow[]> {
-  const res = await fetch(`${API_BASE}/contracts`);
+  const res = await fetch(`${API_BASE}/contracts`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching contracts');
   const json = await res.json();
   return json.data || [];
@@ -158,7 +188,9 @@ export type ContractDisplayRow = {
 };
 
 export async function getContractsDisplay(): Promise<ContractDisplayRow[]> {
-  const res = await fetch(`${API_BASE}/contracts`);
+  const res = await fetch(`${API_BASE}/contracts`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching contracts');
   const json = await res.json();
   return (json.data || []).map((c: any) => ({
@@ -197,7 +229,9 @@ export async function getContractsComplete(filters: { unit_id?: number; company_
   if (filters.unit_id) url.searchParams.append('unit_id', String(filters.unit_id));
   if (filters.company_id) url.searchParams.append('company_id', String(filters.company_id));
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching contracts complete');
   const json = await res.json();
   return json.data || [];
@@ -217,7 +251,7 @@ export type CreateContractRequest = {
 export async function createContract(data: CreateContractRequest): Promise<ContractCompleteRow> {
   const res = await fetch(`${API_BASE}/contracts`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) {
@@ -256,7 +290,9 @@ export type ProviderRow = {
 };
 
 export async function getProviders(): Promise<ProviderRow[]> {
-  const res = await fetch(`${API_BASE}/providers`);
+  const res = await fetch(`${API_BASE}/providers`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching providers');
   const json = await res.json();
   return json.data || [];
@@ -274,7 +310,7 @@ export type CreateProviderRequest = {
 export async function createProvider(data: CreateProviderRequest): Promise<ProviderRow> {
   const res = await fetch(`${API_BASE}/providers`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Error creating provider');
@@ -292,7 +328,7 @@ export type UpdateProviderRequest = {
 export async function updateProvider(providerId: number, data: UpdateProviderRequest): Promise<ProviderRow> {
   const res = await fetch(`${API_BASE}/providers/${providerId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) throw new Error('Error updating provider');
@@ -302,7 +338,7 @@ export async function updateProvider(providerId: number, data: UpdateProviderReq
 export async function updateProviderStatus(providerId: number, status: 'Activo' | 'Inactivo'): Promise<ProviderRow> {
   const res = await fetch(`${API_BASE}/providers/${providerId}/status`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ status })
   });
   if (!res.ok) {
@@ -325,7 +361,7 @@ export type CreatePaymentRequest = {
 export async function createPayment(data: CreatePaymentRequest): Promise<PaymentRow> {
   const res = await fetch(`${API_BASE}/payments`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
   if (!res.ok) {
@@ -341,14 +377,18 @@ export async function getPayments(filters: { contract_id?: number; status?: stri
   if (filters.contract_id) url.searchParams.append('contract_id', String(filters.contract_id));
   if (filters.status) url.searchParams.append('status', filters.status);
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching payments');
   const data = await res.json();
   return data.data || [];
 }
 
 export async function getPaymentsByContract(contractId: number): Promise<PaymentRow[]> {
-  const res = await fetch(`${API_BASE}/payments/by-contract/${contractId}`);
+  const res = await fetch(`${API_BASE}/payments/by-contract/${contractId}`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching payments by contract');
   const json = await res.json();
   return json.data || [];
@@ -357,7 +397,7 @@ export async function getPaymentsByContract(contractId: number): Promise<Payment
 export async function updatePaymentStatus(paymentId: number, status: 'Pagado' | 'Pendiente' | 'Vencido'): Promise<PaymentRow> {
   const res = await fetch(`${API_BASE}/payments/${paymentId}/status`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ status })
   });
   if (!res.ok) {
@@ -392,7 +432,9 @@ export type CompanyRow = {
 };
 
 export async function getCompanies(): Promise<CompanyRow[]> {
-  const res = await fetch(`${API_BASE}/companies`);
+  const res = await fetch(`${API_BASE}/companies`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching companies');
   const json = await res.json();
   return json.data || [];
@@ -401,10 +443,14 @@ export async function getCompanies(): Promise<CompanyRow[]> {
 export async function createCompany(name: string): Promise<CompanyRow> {
   const res = await fetch(`${API_BASE}/companies`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name })
   });
-  if (!res.ok) throw new Error('Error creating company');
+  if (!res.ok) {
+    const err = await res.json();
+    if (err.error === 'EMPRESA_DUPLICADA') throw new Error(err.message);
+    throw new Error(err.error || 'Error creating company');
+  }
   const json = await res.json();
   return json.data;
 }
@@ -412,10 +458,14 @@ export async function createCompany(name: string): Promise<CompanyRow> {
 export async function updateCompany(id: number, name: string): Promise<CompanyRow> {
   const res = await fetch(`${API_BASE}/companies/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name })
   });
-  if (!res.ok) throw new Error('Error updating company');
+  if (!res.ok) {
+    const err = await res.json();
+    if (err.error === 'EMPRESA_DUPLICADA') throw new Error(err.message);
+    throw new Error(err.error || 'Error updating company');
+  }
   const json = await res.json();
   return json.data;
 }
@@ -423,7 +473,7 @@ export async function updateCompany(id: number, name: string): Promise<CompanyRo
 export async function updateCompanyStatus(id: number, status: 'Activo' | 'Inactivo'): Promise<CompanyRow> {
   const res = await fetch(`${API_BASE}/companies/${id}/status`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ status })
   });
   if (!res.ok) throw new Error('Error updating company status');
@@ -433,7 +483,8 @@ export async function updateCompanyStatus(id: number, status: 'Activo' | 'Inacti
 
 export async function deleteCompany(id: number): Promise<void> {
   const res = await fetch(`${API_BASE}/companies/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders()
   });
   if (!res.ok) {
     const err = await res.json();
@@ -446,7 +497,9 @@ export async function deleteCompany(id: number): Promise<void> {
 
 // --- BATCH UPLOAD ---
 export async function downloadUnitsTemplate(): Promise<Blob> {
-  const res = await fetch(`${API_BASE}/units/template`);
+  const res = await fetch(`${API_BASE}/units/template`, {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error descargando plantilla');
   return res.blob();
 }
@@ -455,7 +508,9 @@ export type BatchUploadResult = {
   total: number;
   inserted: number;
   failed: number;
-  errors: Array<{ row: number; economic_number?: string; message: string }>;
+  duplicados_en_excel?: number;
+  duplicados_en_bd?: number;
+  errors: Array<{ row: number; economic_number?: string; message: string; campo?: string; valor?: string; motivo?: string }>;
 };
 
 export async function uploadUnitsBatch(file: File): Promise<BatchUploadResult> {
@@ -464,6 +519,7 @@ export async function uploadUnitsBatch(file: File): Promise<BatchUploadResult> {
 
   const res = await fetch(`${API_BASE}/units/batch-upload`, {
     method: 'POST',
+    headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData,
   });
 
@@ -473,3 +529,44 @@ export async function uploadUnitsBatch(file: File): Promise<BatchUploadResult> {
   }
   return res.json();
 }
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type LoginResponse = {
+  ok: boolean;
+  data: {
+    token: string;
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      role: string;
+      tenantId: number;
+    };
+  };
+};
+
+export async function login(data: LoginRequest): Promise<LoginResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Login failed' }));
+    throw new Error(err.error || 'Login failed');
+  }
+  const result = await res.json();
+  if (result.data?.token) {
+    localStorage.setItem('token', result.data.token);
+  }
+  return result;
+}
+
+export function logout(): void {
+  localStorage.removeItem('token');
+}
+

@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { getCompanies, createUnit } from './repository.js';
+import { getCompanies, createUnit, checkExistingUnits } from './repository.js';
 
 export const UNIT_TYPES = [
     'Tractocamión',
@@ -97,7 +97,7 @@ export async function generateUnitTemplate() {
     return workbook;
 }
 
-export async function processBatchUpload(filePath) {
+export async function processBatchUpload(filePath, tenantId = 1) {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
 
@@ -105,16 +105,19 @@ export async function processBatchUpload(filePath) {
     const results = {
         total: 0,
         inserted: 0,
+        duplicados_en_excel: 0,
+        duplicados_en_bd: 0,
         failed: 0,
         errors: []
     };
 
     const rowsToProcess = [];
+    const seenEcos = new Set();
+    // const seenPlates = new Set(); // Placas también deben ser únicas
 
     worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
 
-        // Get values (ExcelJS indices are 1-based)
         // Cols: 1=Eco, 2=Plate, 3=CompId, 4=Type, 5=Brand, 6=Model, 7=Year, 8=Serial
         const rawEco = row.getCell(1).value;
 
@@ -122,47 +125,115 @@ export async function processBatchUpload(filePath) {
         if (!rawEco) return;
 
         const rowData = {
-            economic_number: rawEco?.toString(),
-            license_plate: row.getCell(2).value?.toString(),
+            economic_number: rawEco?.toString().trim(),
+            license_plate: row.getCell(2).value?.toString().trim(),
             assigned_company_id: row.getCell(3).value, // ID Numérico
-            type: row.getCell(4).value?.toString(),
-            brand: row.getCell(5).value?.toString() || '',
-            model: row.getCell(6).value?.toString() || '',
-            year: row.getCell(7).value?.toString() || new Date().getFullYear().toString(),
-            serial_number: row.getCell(8).value?.toString() || '',
+            type: row.getCell(4).value?.toString().trim(),
+            brand: row.getCell(5).value?.toString().trim() || '',
+            model: row.getCell(6).value?.toString().trim() || '',
+            year: row.getCell(7).value?.toString().trim() || new Date().getFullYear().toString(),
+            serial_number: row.getCell(8).value?.toString().trim() || '',
+            tenantId: tenantId
         };
 
-        rowsToProcess.push({ rowNumber, data: rowData });
+        // 1. Detección Duplicados en Excel (solo Económico es crítico aquí, Placas opcional)
+        // El usuario mencionó "Numero económico duplicado".
+        if (seenEcos.has(rowData.economic_number)) {
+            results.duplicados_en_excel++;
+            results.failed++;
+            results.errors.push({
+                fila: rowNumber,
+                campo: 'numero_economico',
+                valor: rowData.economic_number,
+                motivo: 'Duplicado en el mismo archivo (Excel)'
+            });
+            // No procesamos inserción si ya está duplicado en archivo
+        } else {
+            seenEcos.add(rowData.economic_number);
+            rowsToProcess.push({ rowNumber, data: rowData });
+        }
     });
 
-    results.total = rowsToProcess.length;
+    // 2. Detección Duplicados en BD (Bulk Check)
+    if (rowsToProcess.length > 0) {
+        const ecosToCheck = rowsToProcess.map(r => r.data.economic_number);
+        const platesToCheck = rowsToProcess.map(r => r.data.license_plate).filter(p => p); // Filtrar vacíos
 
-    // Procesar secuencialmente para no saturar connection pool
-    for (const item of rowsToProcess) {
         try {
-            // Validaciones básicas
-            if (!item.data.economic_number || !item.data.license_plate || !item.data.assigned_company_id || !item.data.type) {
-                throw new Error('Faltan campos obligatorios (Económico, Placas, ID Empresa, Tipo)');
+            const existingUnits = await checkExistingUnits(ecosToCheck, platesToCheck, tenantId);
+
+            // Sets para búsqueda rápida
+            const existingEcosSet = new Set(existingUnits.map(u => u.economic_number));
+            const existingPlatesSet = new Set(existingUnits.map(u => u.license_plate));
+
+            const finalRowsToInsert = [];
+
+            for (const item of rowsToProcess) {
+                let isDbDupe = false;
+
+                if (existingEcosSet.has(item.data.economic_number)) {
+                    isDbDupe = true;
+                    results.duplicados_en_bd++;
+                    results.failed++;
+                    results.errors.push({
+                        fila: item.rowNumber,
+                        campo: 'numero_economico',
+                        valor: item.data.economic_number,
+                        motivo: 'Duplicado en base de datos'
+                    });
+                } else if (item.data.license_plate && existingPlatesSet.has(item.data.license_plate)) {
+                    isDbDupe = true;
+                    results.duplicados_en_bd++;
+                    results.failed++;
+                    results.errors.push({
+                        fila: item.rowNumber,
+                        campo: 'placas',
+                        valor: item.data.license_plate,
+                        motivo: 'Duplicado en base de datos'
+                    });
+                }
+
+                if (!isDbDupe) {
+                    finalRowsToInsert.push(item);
+                }
             }
 
-            // Intentar Insertar
-            await createUnit(item.data);
-            results.inserted++;
+            // 3. Insertar válidos
+            for (const item of finalRowsToInsert) {
+                try {
+                    // Validaciones obligatorias
+                    if (!item.data.economic_number || !item.data.license_plate || !item.data.assigned_company_id || !item.data.type) {
+                        throw new Error('Faltan campos obligatorios (Económico, Placas, ID Empresa, Tipo)');
+                    }
 
-        } catch (err) {
-            results.failed++;
-            let msg = err.message;
-            if (msg === 'DUPLICATE_ECONOMIC_NUMBER') msg = 'Número económico duplicado';
-            if (msg === 'DUPLICATE_LICENSE_PLATE') msg = 'Placas duplicadas';
-            if (msg.includes('foreign key constraint fails')) msg = 'ID de Empresa no válido';
+                    await createUnit(item.data);
+                    results.inserted++;
 
-            results.errors.push({
-                row: item.rowNumber,
-                economic_number: item.data.economic_number,
-                message: msg
-            });
+                } catch (err) {
+                    results.failed++;
+                    let msg = err.message;
+                    // Mapeo errores conocidos
+                    if (msg === 'DUPLICATE_ECONOMIC_NUMBER') msg = 'Número económico duplicado (Race condition)';
+                    if (msg === 'DUPLICATE_LICENSE_PLATE') msg = 'Placas duplicadas (Race condition)';
+                    if (msg.includes('foreign key') || msg === 'INVALID_FOREIGN_KEY') msg = 'ID de Empresa no válido';
+
+                    results.errors.push({
+                        fila: item.rowNumber,
+                        campo: 'general',
+                        valor: 'N/A',
+                        motivo: msg
+                    });
+                }
+            }
+
+        } catch (error) {
+            // Si falla el check bulk, abortamos? O procesamos uno a uno?
+            // Mejor log y error general
+            console.error(error);
+            throw new Error('Error verificando duplicados en BD');
         }
     }
 
+    results.total = results.inserted + results.failed;
     return results;
 }
