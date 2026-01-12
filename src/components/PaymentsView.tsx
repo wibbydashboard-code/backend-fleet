@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getPayments, getContractsComplete, createPayment, uploadPaymentPDF, updatePaymentStatus, getProviders, type PaymentRow, type CreatePaymentRequest, type ContractCompleteRow, type ProviderRow } from '@/api';
+import { SortHeader } from './SortHeader';
 
 const fmt = (d?: string | null) => {
   if (!d) return '';
@@ -40,6 +41,16 @@ export const PaymentsView: React.FC = () => {
     status: 'Pendiente'
   });
   const [paymentPdfFile, setPaymentPdfFile] = useState<File | null>(null);
+
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const load = async () => {
     try {
@@ -143,11 +154,40 @@ export const PaymentsView: React.FC = () => {
     }
   };
 
-  const filteredPayments = payments.filter(p => {
-    if (filters.status && p.status !== filters.status) return false;
-    if (filters.contract_id && p.contract_id !== parseInt(filters.contract_id)) return false;
-    return true;
-  });
+  const filteredPayments = useMemo(() => {
+    return payments.filter(p => {
+      if (filters.status && p.status !== filters.status) return false;
+      if (filters.contract_id && p.contract_id !== parseInt(filters.contract_id)) return false;
+      return true;
+    });
+  }, [payments, filters]);
+
+  const sortedPayments = useMemo(() => {
+    if (!sortConfig) return filteredPayments;
+    return [...filteredPayments].sort((a: any, b: any) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+
+      // Manejar campos de contrato que están anidados o calculados
+      if (sortConfig.key === 'contract_number' && !aValue) {
+        const c = contracts.find(x => x.id === a.contract_id);
+        aValue = c?.contract_number || '';
+      }
+      if (sortConfig.key === 'contract_number' && !bValue) {
+        const c = contracts.find(x => x.id === b.contract_id);
+        bValue = c?.contract_number || '';
+      }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+      const aStr = String(aValue || '').toLowerCase();
+      const bStr = String(bValue || '').toLowerCase();
+      if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredPayments, sortConfig, contracts]);
 
   useEffect(() => {
     load();
@@ -209,26 +249,24 @@ export const PaymentsView: React.FC = () => {
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fecha Pago</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Vencimiento</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Contrato</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Proveedor</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Empresa</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Unidad</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Monto</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Método</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estatus</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Comprobante</th>
+              <SortHeader label="Fecha Pago" sortKey="payment_date" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Vencimiento" sortKey="due_date" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Contrato" sortKey="contract_number" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Empresa" sortKey="company_name" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Monto" sortKey="amount" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Método" sortKey="payment_method" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Estatus" sortKey="status" currentSort={sortConfig} onSort={handleSort} />
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Comp.</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200">
             {loading ? (
-              <tr><td colSpan={11} className="px-6 py-4 text-sm text-slate-500">Cargando…</td></tr>
-            ) : filteredPayments.length === 0 ? (
-              <tr><td colSpan={11} className="px-6 py-4 text-sm text-slate-500">Sin pagos registrados.</td></tr>
+              <tr><td colSpan={11} className="px-6 py-4 text-sm text-slate-500 text-center">Cargando pagos...</td></tr>
+            ) : sortedPayments.length === 0 ? (
+              <tr><td colSpan={11} className="px-6 py-4 text-sm text-slate-500 text-center">Sin pagos registrados.</td></tr>
             ) : (
-              filteredPayments.map((p) => {
+              sortedPayments.map((p) => {
                 const contract = contracts.find(c => c.id === p.contract_id);
                 return (
                   <tr key={p.id} className="hover:bg-slate-50">

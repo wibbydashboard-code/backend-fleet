@@ -1,6 +1,6 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getContractsComplete, getUnits, createContract, uploadContractPDF, getProviders, getPaymentsByContract, createPayment, uploadPaymentPDF, updatePaymentStatus, getCompanies, type ContractCompleteRow, type CreateContractRequest, type ProviderRow, type PaymentRow, type CreatePaymentRequest, type CompanyRow } from '@/api';
+import { SortHeader } from './SortHeader';
 
 const fmt = (d?: string | null) => {
   if (!d) return '';
@@ -51,6 +51,16 @@ export const ContractsView: React.FC = () => {
     status: 'Pendiente'
   });
   const [paymentPdfFile, setPaymentPdfFile] = useState<File | null>(null);
+
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const load = async () => {
     try {
@@ -206,6 +216,22 @@ export const ContractsView: React.FC = () => {
     }
   }, [newContract.start_date, newContract.end_date]);
 
+  const sortedContracts = useMemo(() => {
+    if (!sortConfig) return contracts;
+    return [...contracts].sort((a: any, b: any) => {
+      const aValue = a[sortConfig.key] || '';
+      const bValue = b[sortConfig.key] || '';
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+      if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [contracts, sortConfig]);
+
   return (
     <div className="bg-white p-6 rounded-lg shadow">
       <div className="flex justify-between items-center mb-6">
@@ -227,23 +253,23 @@ export const ContractsView: React.FC = () => {
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">No. Contrato</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Proveedor</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Empresa</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Unidad</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Vigencia</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estatus</th>
+              <SortHeader label="No. Contrato" sortKey="contract_number" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Proveedor" sortKey="provider_name" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Empresa" sortKey="company_name" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Unidad" sortKey="unit_economic_number" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Fin Vigencia" sortKey="end_date" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Estatus" sortKey="status" currentSort={sortConfig} onSort={handleSort} />
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">PDF</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Pagos</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200">
             {loading ? (
-              <tr><td colSpan={8} className="px-6 py-4 text-sm text-slate-500">Cargando…</td></tr>
-            ) : contracts.length === 0 ? (
-              <tr><td colSpan={8} className="px-6 py-4 text-sm text-slate-500">Sin resultados.</td></tr>
+              <tr><td colSpan={8} className="px-6 py-4 text-sm text-slate-500 text-center">Cargando contratos...</td></tr>
+            ) : sortedContracts.length === 0 ? (
+              <tr><td colSpan={8} className="px-6 py-4 text-sm text-slate-500 text-center">Sin resultados.</td></tr>
             ) : (
-              contracts.map((c, i) => (
+              sortedContracts.map((c, i) => (
                 <tr key={c.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{c.contract_number}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{c.provider_name}</td>

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getUnits, createUnit, updateUnitStatus, getCompanies, downloadUnitsTemplate, uploadUnitsBatch, type UnitRow, type CreateUnitRequest, type CompanyRow, type BatchUploadResult } from '@/api';
+import { SortHeader } from './SortHeader';
 
 interface UnitsProps {
   onOpenModal: (unit: UnitRow) => void;
@@ -43,6 +44,16 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchResult, setBatchResult] = useState<BatchUploadResult | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
+
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const handleDownloadTemplate = async () => {
     try {
@@ -170,6 +181,26 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
+  const sortedRows = useMemo(() => {
+    if (!sortConfig) return rows;
+    const sorted = [...rows].sort((a: any, b: any) => {
+      const aValue = a[sortConfig.key] || '';
+      const bValue = b[sortConfig.key] || '';
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+
+      if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [rows, sortConfig]);
+
   return (
     <div className="bg-white p-6 rounded-lg shadow">
       <div className="flex justify-between items-center mb-6">
@@ -243,16 +274,16 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Económico</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Placa</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tipo de Unidad</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Empresa Asignada</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estatus Contrato</th>
+              <SortHeader label="Económico" sortKey="economic_number" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Placa" sortKey="license_plate" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Tipo" sortKey="type" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Empresa" sortKey="company_name" currentSort={sortConfig} onSort={handleSort} />
+              <SortHeader label="Estatus" sortKey="status" currentSort={sortConfig} onSort={handleSort} />
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-slate-200">
-            {rows.length > 0 ? rows.map((unit, index) => (
+            {sortedRows.length > 0 ? sortedRows.map((unit, index) => (
               <tr key={unit.id} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{unit.economic_number}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{unit.license_plate || ''}</td>
@@ -282,7 +313,7 @@ export const Units: React.FC<UnitsProps> = ({ onOpenModal }) => {
                 </td>
               </tr>
             )) : (
-              <tr><td className="px-6 py-4 text-sm text-slate-500" colSpan={6}>
+              <tr><td className="px-6 py-4 text-sm text-slate-500 text-center" colSpan={6}>
                 {loading ? 'Cargando…' : 'Sin resultados.'}
               </td></tr>
             )}

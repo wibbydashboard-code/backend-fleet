@@ -1,6 +1,6 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, type CompanyRow } from '@/api';
+import { SortHeader } from './SortHeader';
 
 export const CompaniesView: React.FC = () => {
     const [companies, setCompanies] = useState<CompanyRow[]>([]);
@@ -10,6 +10,16 @@ export const CompaniesView: React.FC = () => {
     const [editingId, setEditingId] = useState<number | null>(null);
     const [formData, setFormData] = useState({ name: '' });
     const [submitting, setSubmitting] = useState(false);
+
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
 
     const load = async () => {
         try {
@@ -86,6 +96,22 @@ export const CompaniesView: React.FC = () => {
         setFormData({ name: '' });
     };
 
+    const sortedCompanies = useMemo(() => {
+        if (!sortConfig) return companies;
+        return [...companies].sort((a: any, b: any) => {
+            const aValue = a[sortConfig.key] || '';
+            const bValue = b[sortConfig.key] || '';
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
+            }
+            const aStr = String(aValue).toLowerCase();
+            const bStr = String(bValue).toLowerCase();
+            if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [companies, sortConfig]);
+
     return (
         <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex justify-between items-center mb-6">
@@ -107,15 +133,15 @@ export const CompaniesView: React.FC = () => {
                 <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nombre</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estatus</th>
+                            <SortHeader label="ID" sortKey="id" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Nombre" sortKey="name" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Estatus" sortKey="status" currentSort={sortConfig} onSort={handleSort} />
                             <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-slate-200">
-                        {companies.length > 0 ? (
-                            companies.map((c) => (
+                        {sortedCompanies.length > 0 ? (
+                            sortedCompanies.map((c) => (
                                 <tr key={c.id}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-slate-500">#{c.id}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{c.name}</td>
