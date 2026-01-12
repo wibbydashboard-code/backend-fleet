@@ -149,7 +149,9 @@ export async function getPaymentsReport(params: { from?: string; to?: string; co
   if (params.to) url.searchParams.append('to', params.to);
   if (params.company) url.searchParams.append('company', params.company);
 
-  const res = await fetch(url.toString());
+  const res = await fetchWithAuth(url.toString(), {
+    headers: getAuthHeaders()
+  });
   if (!res.ok) throw new Error('Error fetching payments report');
   const data = await res.json();
   return data.data || [];
@@ -266,8 +268,9 @@ export async function uploadContractPDF(contractId: number, file: File): Promise
   const formData = new FormData();
   formData.append('pdf', file);
 
-  const res = await fetch(`${API_BASE}/contracts/${contractId}/upload`, {
+  const res = await fetchWithAuth(`${API_BASE}/contracts/${contractId}/upload`, {
     method: 'POST',
+    headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData
   });
   if (!res.ok) {
@@ -412,8 +415,9 @@ export async function uploadPaymentPDF(paymentId: number, file: File): Promise<P
   const formData = new FormData();
   formData.append('pdf', file);
 
-  const res = await fetch(`${API_BASE}/payments/${paymentId}/upload`, {
+  const res = await fetchWithAuth(`${API_BASE}/payments/${paymentId}/upload`, {
     method: 'POST',
+    headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData
   });
   if (!res.ok) {
@@ -517,7 +521,7 @@ export async function uploadUnitsBatch(file: File): Promise<BatchUploadResult> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch(`${API_BASE}/units/batch-upload`, {
+  const res = await fetchWithAuth(`${API_BASE}/units/batch-upload`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
     body: formData,
