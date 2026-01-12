@@ -1120,7 +1120,12 @@ export async function fixDBSchema() {
     await safeExecute("ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'active'", "status en users");
     await safeExecute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP NULL", "last_login en users");
 
-    return { message: "Schema patched successfully", details: results };
+    // 4. Asegurar que datos existentes tengan tenant_id = 1
+    for (const table of tables) {
+      await safeExecute(`UPDATE ${table} SET tenant_id = 1 WHERE tenant_id IS NULL OR tenant_id = 0`, `Data migration in ${table}`);
+    }
+
+    return { message: "Schema patched and data migrated successfully", details: results };
   } catch (error) {
     console.error('FIX SCHEMA ERROR:', error);
     throw error;
