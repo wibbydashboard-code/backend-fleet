@@ -107,6 +107,7 @@ export const CompaniesView: React.FC = () => {
                 <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50">
                         <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nombre</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estatus</th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
@@ -116,6 +117,7 @@ export const CompaniesView: React.FC = () => {
                         {companies.length > 0 ? (
                             companies.map((c) => (
                                 <tr key={c.id}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-slate-500">#{c.id}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{c.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <button
@@ -138,7 +140,7 @@ export const CompaniesView: React.FC = () => {
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={3} className="px-6 py-4 text-center text-sm text-slate-500">
+                                <td colSpan={4} className="px-6 py-4 text-center text-sm text-slate-500">
                                     {loading ? 'Cargando...' : 'No hay empresas registradas.'}
                                 </td>
                             </tr>
