@@ -180,15 +180,12 @@ export async function checkExistingUnits(economicNumbers, licensePlates, tenantI
 
   let whereClause = conditions.join(' OR ');
 
-  let query = `SELECT economic_number, license_plate FROM units WHERE (${whereClause})`;
-
-  if (tenantId) {
-    query += ` AND tenant_id = ?`;
-    params.push(tenantId);
-  }
+  // Making this GLOBAL because DB index is global.
+  // This ensures the summary matches the actual DB rejection.
+  const query = `SELECT economic_number, license_plate FROM units WHERE (${whereClause})`;
 
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(query, []); // No tenantId in params
     return rows;
   } catch (error) {
     console.error('CHECK EXISTING UNITS ERROR:', error);
@@ -233,13 +230,11 @@ export async function createUnit(unitData) {
     return { id: result.insertId, ...unitData, status: 'Activo', tenantId };
   } catch (error) {
     console.error('CREATE UNIT ERROR:', error);
-    if (error.code === 'ER_DUP_ENTRY') {
-      if (error.message.includes('economic_number')) {
-        throw new Error('DUPLICATE_ECONOMIC_NUMBER');
-      }
-      if (error.message.includes('license_plate')) {
-        throw new Error('DUPLICATE_LICENSE_PLATE');
-      }
+    const msg = error.sqlMessage || error.message || '';
+    if (error.code === 'ER_DUP_ENTRY' || msg.includes('Duplicate entry')) {
+      if (msg.includes('economic_number')) throw new Error('DUPLICATE_ECONOMIC_NUMBER');
+      if (msg.includes('license_plate')) throw new Error('DUPLICATE_LICENSE_PLATE');
+      throw new Error('DUPLICATE_ENTRY'); // Generic duplicate if field unknown
     }
     throw new Error('DB_INTEGRITY_ERROR');
   }

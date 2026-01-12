@@ -213,8 +213,9 @@ export async function processBatchUpload(filePath, tenantId = 1) {
                     results.failed++;
                     let msg = err.message;
                     // Mapeo errores conocidos
-                    if (msg === 'DUPLICATE_ECONOMIC_NUMBER') msg = 'Número económico duplicado (Race condition)';
-                    if (msg === 'DUPLICATE_LICENSE_PLATE') msg = 'Placas duplicadas (Race condition)';
+                    if (msg === 'DUPLICATE_ECONOMIC_NUMBER') msg = 'Número económico duplicado';
+                    if (msg === 'DUPLICATE_LICENSE_PLATE') msg = 'Placas duplicadas';
+                    if (msg === 'DUPLICATE_ENTRY') msg = 'Registro duplicado (Económico o Placas)';
                     if (msg.includes('foreign key') || msg === 'INVALID_FOREIGN_KEY') msg = 'ID de Empresa no válido';
 
                     results.errors.push({
