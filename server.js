@@ -3,7 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, fixCompaniesSchema, getAllTenants, getTenantById, createTenant, updateTenant, updateTenantStatus, getTenantMetrics, getAllUsers, getUserById, getUserByEmail, createUser, updateUser, updateUserStatus, updateLastLogin } from './repository.js';
+import { validateEntidad, getAllContracts, getAllUnits, createUnit, updateUnitStatus, checkActiveContracts, getStats, getUpcomingExpirations, getPaymentsReport, createContract, getContractsWithData, updateContractPDF, getProviders, createProvider, updateProvider, updateProviderStatus, getProviderStatement, createPayment, getPaymentsByContract, updatePaymentStatus, updatePaymentPDF, getAllPayments, getCompanies, createCompany, updateCompany, updateCompanyStatus, deleteCompany, fixDBSchema, getAllTenants, getTenantById, createTenant, updateTenant, updateTenantStatus, getTenantMetrics, getAllUsers, getUserById, getUserByEmail, createUser, updateUser, updateUserStatus, updateLastLogin } from './repository.js';
 import { auditLogger } from './auditLogger.js';
 import { generateUnitTemplate, processBatchUpload } from './bulkUploadService.js';
 import { calculateSaldoInicial, getAbonosReales, generateCargosContratos, generateCargosSeguros, unifyMovimientos, sortMovimientos, calculateFinancials } from './financialService.js';
@@ -416,41 +416,7 @@ app.put('/api/units/:id/status', async (req, res) => {
   }
 });
 
-async function getUpcomingExpirations(tenantId = null) {
-  const mysql = await import('mysql2/promise');
-  const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'fleet_db',
-    ssl: (process.env.DB_HOST && process.env.DB_HOST !== 'localhost')
-      ? { rejectUnauthorized: false }
-      : false
-  });
-
-  let query = `
-    SELECT
-      'Renta' AS type,
-      u.economic_number AS unitName,
-      c.contract_number AS reference,
-      DATEDIFF(c.end_date, CURDATE()) AS days_left
-    FROM contracts c
-    JOIN units u ON c.unit_id = u.id
-    WHERE c.end_date >= CURDATE() AND c.is_active = 1
-  `;
-
-  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, [], tenantId, 'c');
-  const sortedQuery = `${finalQuery} ORDER BY c.end_date ASC LIMIT 10`;
-
-  const [rows] = await conn.execute(sortedQuery, finalParams);
-  await conn.end();
-  return rows.map(r => ({
-    type: r.type,
-    unit: r.unitName,
-    contract_number: r.reference,
-    days_left: r.days_left
-  }));
-}
+// getUpcomingExpirations movido a repository.js
 
 console.log('>> registrando GET /api/contracts');
 app.get('/api/contracts', resolveTenant, requireAuth, requireRole('admin', 'user', 'viewer'), async (req, res) => {
@@ -1075,7 +1041,7 @@ app.delete('/api/companies/:id', async (req, res) => {
 // Endpoint temporal para corregir la DB
 app.get('/api/fix-db', async (req, res) => {
   try {
-    const result = await fixCompaniesSchema();
+    const result = await fixDBSchema();
     res.json({ ok: true, data: result });
   } catch (error) {
     console.error(error);

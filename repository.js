@@ -444,6 +444,36 @@ export async function getStats(tenantId = null) {
   }
 }
 
+export async function getUpcomingExpirations(tenantId = null) {
+  const conn = await getConnection();
+  let query = `
+    SELECT
+      'Renta' AS type,
+      u.economic_number AS unitName,
+      c.contract_number AS reference,
+      DATEDIFF(c.end_date, CURDATE()) AS days_left
+    FROM contracts c
+    JOIN units u ON c.unit_id = u.id
+    WHERE c.end_date >= CURDATE() AND c.is_active = 1
+  `;
+
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, [], tenantId, 'c');
+  const sortedQuery = `${finalQuery} ORDER BY c.end_date ASC LIMIT 10`;
+
+  try {
+    const [rows] = await conn.execute(sortedQuery, finalParams);
+    return rows.map(r => ({
+      type: r.type,
+      unit: r.unitName,
+      contract_number: r.reference,
+      days_left: r.days_left
+    }));
+  } catch (error) {
+    console.error('GET UPCOMING EXPIRATIONS ERROR:', error);
+    throw new Error('DB_INTEGRITY_ERROR');
+  }
+}
+
 export async function getPaymentsReport(filters = {}) {
   const conn = await getConnection();
   let query = `
@@ -1047,29 +1077,50 @@ export async function deleteCompany(id) {
   }
 }
 
-export async function fixCompaniesSchema() {
+export async function fixDBSchema() {
   const conn = await getConnection();
+  const results = [];
+
+  const safeExecute = async (sql, label) => {
+    try {
+      await conn.execute(sql);
+      results.push(`✅ ${label}`);
+    } catch (e) {
+      results.push(`ℹ️ ${label} (skip: ${e.message})`);
+    }
+  };
+
   try {
-    // Intentar agregar columnas si no existen
-    // Nota: MySQL/TiDB no siempre soporta IF NOT EXISTS en ADD COLUMN en todas las versiones, 
-    // pero TiDB generalmente es compatible con MySQL 5.7/8.0.
-    // Lo haremos con try-catch por si ya existen.
+    // 1. Crear tabla audit_logs
+    await safeExecute(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NULL,
+        user_id INT NULL,
+        action VARCHAR(50) NOT NULL,
+        entity VARCHAR(50) NOT NULL,
+        entity_id INT NULL,
+        metadata JSON NULL,
+        ip VARCHAR(45) NULL,
+        user_agent TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `, "Tabla audit_logs");
 
-    try {
-      await conn.execute("ALTER TABLE companies ADD COLUMN status VARCHAR(50) DEFAULT 'Activo'");
-      console.log("Added status column");
-    } catch (e) {
-      console.log("Status column likely exists or error:", e.message);
+    // 2. Agregar tenant_id a todas las tablas
+    const tables = ['units', 'contracts', 'payments', 'providers', 'companies', 'users'];
+    for (const table of tables) {
+      await safeExecute(`ALTER TABLE ${table} ADD COLUMN tenant_id INT DEFAULT 1`, `tenant_id en ${table}`);
+      await safeExecute(`CREATE INDEX idx_${table}_tenant ON ${table}(tenant_id)`, `index tenant en ${table}`);
     }
 
-    try {
-      await conn.execute("ALTER TABLE companies ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
-      console.log("Added created_at column");
-    } catch (e) {
-      console.log("created_at column likely exists or error:", e.message);
-    }
+    // 3. Columnas extras necesarias
+    await safeExecute("ALTER TABLE companies ADD COLUMN status VARCHAR(50) DEFAULT 'Activo'", "status en companies");
+    await safeExecute("ALTER TABLE companies ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "created_at en companies");
+    await safeExecute("ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'active'", "status en users");
+    await safeExecute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP NULL", "last_login en users");
 
-    return { message: "Schema patched successfully" };
+    return { message: "Schema patched successfully", details: results };
   } catch (error) {
     console.error('FIX SCHEMA ERROR:', error);
     throw error;
