@@ -9,11 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "moment": "^2.30.1",
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",
     "react": "^19.1.1",
