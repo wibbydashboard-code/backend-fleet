@@ -570,3 +570,30 @@ export function logout(): void {
   localStorage.removeItem('token');
 }
 
+export type AuditLogRow = {
+  id: number;
+  tenant_id: number;
+  user_id: number;
+  action: string;
+  entity: string;
+  entity_id: number | null;
+  metadata: any;
+  ip: string | null;
+  created_at: string;
+};
+
+export async function getAuditLogs(params: { entity?: string; action?: string; limit?: number; offset?: number } = {}): Promise<AuditLogRow[]> {
+  const url = new URL(`${API_BASE}/audit-logs`);
+  if (params.entity) url.searchParams.append('entity', params.entity);
+  if (params.action) url.searchParams.append('action', params.action);
+  if (params.limit) url.searchParams.append('limit', String(params.limit));
+  if (params.offset) url.searchParams.append('offset', String(params.offset));
+
+  const res = await fetchWithAuth(url.toString(), {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) throw new Error('Error fetching audit logs');
+  const json = await res.json();
+  return json.data || [];
+}
+

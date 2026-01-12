@@ -185,7 +185,7 @@ export async function checkExistingUnits(economicNumbers, licensePlates, tenantI
   const query = `SELECT economic_number, license_plate FROM units WHERE (${whereClause})`;
 
   try {
-    const [rows] = await conn.execute(query, []); // No tenantId in params
+    const [rows] = await conn.execute(query, params);
     return rows;
   } catch (error) {
     console.error('CHECK EXISTING UNITS ERROR:', error);
@@ -235,6 +235,9 @@ export async function createUnit(unitData) {
       if (msg.includes('economic_number')) throw new Error('DUPLICATE_ECONOMIC_NUMBER');
       if (msg.includes('license_plate')) throw new Error('DUPLICATE_LICENSE_PLATE');
       throw new Error('DUPLICATE_ENTRY'); // Generic duplicate if field unknown
+    }
+    if (error.code === 'ER_NO_REFERENCED_ROW_2' || msg.includes('foreign key constraint fails')) {
+      throw new Error('INVALID_FOREIGN_KEY');
     }
     throw new Error('DB_INTEGRITY_ERROR');
   }
@@ -487,8 +490,11 @@ export async function getPaymentsReport(filters = {}) {
 
   query += ` ORDER BY p.payment_date DESC, p.id DESC`;
 
+  const tenantId = filters.tenantId || null;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'p');
+
   try {
-    const [rows] = await conn.execute(query, params);
+    const [rows] = await conn.execute(finalQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET PAYMENTS REPORT ERROR:', error);

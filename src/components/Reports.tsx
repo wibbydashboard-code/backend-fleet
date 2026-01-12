@@ -1,6 +1,6 @@
 // Reports.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { getPaymentsReport, getContracts, getProviders, getContractsComplete, getCompanies, getPayments, getPaymentsByContract, type ContractRow, type PaymentRow, type ProviderRow, type ContractCompleteRow, type CompanyRow } from "@/api";
+import { getPaymentsReport, getContracts, getProviders, getContractsComplete, getCompanies, getPayments, getPaymentsByContract, getAuditLogs, type ContractRow, type PaymentRow, type ProviderRow, type ContractCompleteRow, type CompanyRow, type AuditLogRow } from "@/api";
 
 type ReportTab = "costos" | "vencimientos";
 
@@ -696,6 +696,105 @@ const AmortizationTableReport: React.FC = () => {
   );
 };
 
+/* ===================== TRAZABILIDAD (AUDIT LOGS) ===================== */
+const AuditLogsReport: React.FC = () => {
+  const [logs, setLogs] = useState<AuditLogRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const loadLogs = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      const data = await getAuditLogs({ limit: 100 });
+      setLogs(data);
+    } catch (error: any) {
+      setErr(error.message || "Error cargando bitácora");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLogs();
+  }, []);
+
+  const formatMetadata = (meta: any) => {
+    if (!meta) return "—";
+    try {
+      const parsed = typeof meta === 'string' ? JSON.parse(meta) : meta;
+      return JSON.stringify(parsed, null, 2);
+    } catch (e) {
+      return String(meta);
+    }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-lg shadow">
+      <div className="flex justify-between items-center mb-6">
+        <p className="text-sm text-slate-500">Historial detallado de todas las operaciones críticas realizadas en el sistema.</p>
+        <button
+          onClick={loadLogs}
+          disabled={loading}
+          className="text-blue-600 hover:text-blue-800 text-sm font-semibold flex items-center gap-1"
+        >
+          <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Actualizar
+        </button>
+      </div>
+
+      {err && <div className="text-red-600 mb-4">{err}</div>}
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Usuario</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Acción</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Entidad</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">ID</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Detalles</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-slate-200">
+            {logs.length === 0 ? (
+              <tr><td colSpan={6} className="px-6 py-4 text-center text-slate-500">{loading ? "Cargando..." : "No hay registros en la bitácora."}</td></tr>
+            ) : logs.map(log => (
+              <tr key={log.id} className="hover:bg-slate-50">
+                <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
+                  {new Date(log.created_at).toLocaleString('es-MX')}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-700 font-medium">
+                  {log.user_id || 'Sistema'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className="px-2 py-1 text-[10px] font-bold uppercase rounded bg-slate-100 text-slate-600 border border-slate-200">
+                    {log.action}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
+                  {log.entity}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400">
+                  {log.entity_id || 'N/A'}
+                </td>
+                <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate">
+                  <pre className="text-[10px] bg-slate-50 p-1 rounded overflow-hidden">
+                    {formatMetadata(log.metadata)}
+                  </pre>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 /* ===================== CONTENEDOR TABS ===================== */
 export const Reports: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("costos_proyeccion");
@@ -732,6 +831,13 @@ export const Reports: React.FC = () => {
           >
             Vencimientos
           </button>
+          <button
+            onClick={() => setActiveTab("trazabilidad")}
+            className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === "trazabilidad" ? "border-slate-500 text-slate-600" : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              }`}
+          >
+            Bitácora (Logs)
+          </button>
         </nav>
       </div>
 
@@ -739,6 +845,7 @@ export const Reports: React.FC = () => {
       {activeTab === "pagos_reales" && <RealPaymentsReport />}
       {activeTab === "amortizacion" && <AmortizationTableReport />}
       {activeTab === "vencimientos" && <ExpirationsReport />}
+      {activeTab === "trazabilidad" && <AuditLogsReport />}
     </div>
   );
 };

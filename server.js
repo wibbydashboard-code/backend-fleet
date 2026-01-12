@@ -255,13 +255,13 @@ app.post('/api/reports/estado-cuenta', async (req, res) => {
 });
 
 console.log('>> registrando /api/stats');
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', resolveTenant, requireAuth, async (req, res) => {
   try {
-    // Tenant opcional (Fase 3b: vendrá de req.query.tenantId)
-    // Fase 3a: siempre es null (comportamiento actual)
-    const { tenantId } = req.query;
-    const stats = await getStats(tenantId ? parseInt(tenantId) : null);
-    const nextExp = await getUpcomingExpirations();
+    // Tomar tenantId del middleware resolveTenant (JWT)
+    const tenantId = req.tenantId;
+
+    const stats = await getStats(tenantId);
+    const nextExp = await getUpcomingExpirations(tenantId);
     res.json({ ok: true, stats, nextExp });
   } catch (error) {
     console.error('Error en /api/stats:', error);
@@ -416,7 +416,7 @@ app.put('/api/units/:id/status', async (req, res) => {
   }
 });
 
-async function getUpcomingExpirations() {
+async function getUpcomingExpirations(tenantId = null) {
   const mysql = await import('mysql2/promise');
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST || 'localhost',
@@ -428,7 +428,7 @@ async function getUpcomingExpirations() {
       : false
   });
 
-  const query = `
+  let query = `
     SELECT
       'Renta' AS type,
       u.economic_number AS unitName,
@@ -437,11 +437,12 @@ async function getUpcomingExpirations() {
     FROM contracts c
     JOIN units u ON c.unit_id = u.id
     WHERE c.end_date >= CURDATE() AND c.is_active = 1
-    ORDER BY c.end_date ASC
-    LIMIT 10
   `;
 
-  const [rows] = await conn.execute(query);
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, [], tenantId, 'c');
+  const sortedQuery = `${finalQuery} ORDER BY c.end_date ASC LIMIT 10`;
+
+  const [rows] = await conn.execute(sortedQuery, finalParams);
   await conn.end();
   return rows.map(r => ({
     type: r.type,
@@ -504,10 +505,17 @@ app.get('/api/contracts', resolveTenant, requireAuth, requireRole('admin', 'user
 });
 
 console.log('>> registrando GET /api/payments/report');
-app.get('/api/payments/report', async (req, res) => {
+app.get('/api/payments/report', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { from, to, company, provider_id } = req.query;
-    const payments = await getPaymentsReport({ from, to, company, provider_id: provider_id ? parseInt(provider_id) : undefined });
+    const payments = await getPaymentsReport({
+      from,
+      to,
+      company,
+      provider_id: provider_id ? parseInt(provider_id) : undefined,
+      tenantId
+    });
     res.json({ ok: true, data: payments });
   } catch (error) {
     console.error(error);
@@ -528,8 +536,9 @@ app.get('/api/contracts/complete', async (req, res) => {
 });
 
 console.log('>> registrando POST /api/contracts');
-app.post('/api/contracts', async (req, res) => {
+app.post('/api/contracts', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { contract_number, provider_id, unit_id, contracting_company_id, start_date, end_date, term_months, monthly_rent } = req.body;
 
     if (!contract_number || !provider_id || !unit_id || !contracting_company_id || !start_date || !end_date || !term_months || !monthly_rent) {
@@ -563,11 +572,13 @@ app.post('/api/contracts', async (req, res) => {
       start_date,
       end_date,
       term_months,
-      monthly_rent
+      monthly_rent,
+      tenantId
     });
 
     await auditLogger.log({
-      userId: null,
+      userId: req.user?.userId || null,
+      tenantId,
       action: 'create',
       entity: 'contract',
       entityId: contract.id,
@@ -1469,6 +1480,27 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
     if (error.message === 'DUPLICATE_EMAIL') {
       return res.status(400).json({ error: 'Email already exists' });
     }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log('>> registrando GET /api/audit-logs');
+app.get('/api/audit-logs', resolveTenant, requireAuth, async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { entity, action, limit, offset } = req.query;
+
+    const logs = await auditLogger.getLogs({
+      tenantId,
+      entity,
+      action,
+      limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0
+    });
+
+    res.json({ ok: true, data: logs });
+  } catch (error) {
+    console.error('Error en /api/audit-logs:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
