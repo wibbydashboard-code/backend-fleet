@@ -139,7 +139,7 @@ export async function getAllUnits(filters = {}) {
   query += ` ORDER BY u.economic_number ASC`;
 
   const tenantId = filters.tenantId || null;
-  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId);
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(query, params, tenantId, 'u');
 
   try {
     const [rows] = await conn.execute(finalQuery, finalParams);
@@ -657,9 +657,9 @@ export async function updateContractPDF(contractId, pdfPath) {
   }
 }
 
-export async function getProviders() {
+export async function getProviders(tenantId = null) {
   const conn = await getConnection();
-  const query = `
+  const baseQuery = `
     SELECT
       id,
       name,
@@ -670,11 +670,13 @@ export async function getProviders() {
       contact_phone,
       status
     FROM providers
-    ORDER BY name ASC
   `;
 
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(baseQuery, [], tenantId);
+  const sortedQuery = `${finalQuery} ORDER BY name ASC`;
+
   try {
-    const [rows] = await conn.execute(query);
+    const [rows] = await conn.execute(sortedQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET PROVIDERS ERROR:', error);
@@ -684,6 +686,7 @@ export async function getProviders() {
 
 export async function createProvider(providerData) {
   const conn = await getConnection();
+  const tenantId = providerData.tenantId || 1;
   const query = `
     INSERT INTO providers (
       name,
@@ -692,8 +695,9 @@ export async function createProvider(providerData) {
       contact_name,
       contact_email,
       contact_phone,
-      status
-    ) VALUES (?, ?, ?, ?, ?, ?, 'Activo')
+      status,
+      tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, 'Activo', ?)
   `;
   const params = [
     providerData.name,
@@ -701,12 +705,13 @@ export async function createProvider(providerData) {
     providerData.rfc || null,
     providerData.contact_name || null,
     providerData.contact_email || null,
-    providerData.contact_phone || null
+    providerData.contact_phone || null,
+    tenantId
   ];
 
   try {
     const [result] = await conn.execute(query, params);
-    return { id: result.insertId, ...providerData, status: 'Activo' };
+    return { id: result.insertId, ...providerData, status: 'Activo', tenantId };
   } catch (error) {
     console.error('CREATE PROVIDER ERROR:', error);
     throw new Error('DB_INTEGRITY_ERROR');
@@ -992,15 +997,17 @@ export async function getProviderStatement(providerId) {
 
 // --- COMPANIES MODULE ---
 
-export async function getCompanies() {
+export async function getCompanies(tenantId = null) {
   const conn = await getConnection();
-  const query = `
+  const baseQuery = `
     SELECT id, name, status, created_at
     FROM companies
-    ORDER BY name ASC
   `;
+  const { query: finalQuery, params: finalParams } = applyTenantFilter(baseQuery, [], tenantId);
+  const sortedQuery = `${finalQuery} ORDER BY name ASC`;
+
   try {
-    const [rows] = await conn.execute(query);
+    const [rows] = await conn.execute(sortedQuery, finalParams);
     return rows;
   } catch (error) {
     console.error('GET COMPANIES ERROR:', error);
@@ -1008,12 +1015,12 @@ export async function getCompanies() {
   }
 }
 
-export async function createCompany(name) {
+export async function createCompany(name, tenantId = 1) {
   const conn = await getConnection();
-  const query = `INSERT INTO companies (name, status) VALUES (?, 'Activo')`;
+  const query = `INSERT INTO companies (name, status, tenant_id) VALUES (?, 'Activo', ?)`;
   try {
-    const [result] = await conn.execute(query, [name]);
-    return { id: result.insertId, name, status: 'Activo' };
+    const [result] = await conn.execute(query, [name, tenantId]);
+    return { id: result.insertId, name, status: 'Activo', tenantId };
   } catch (error) {
     console.error('CREATE COMPANY ERROR:', error);
     if (error.code === 'ER_DUP_ENTRY') {

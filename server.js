@@ -322,8 +322,9 @@ app.get('/api/units', resolveTenant, requireAuth, requireRole('admin', 'user', '
 });
 
 console.log('>> registrando POST /api/units');
-app.post('/api/units', async (req, res) => {
+app.post('/api/units', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { economic_number, license_plate, serial_number, type, brand, model, year, assigned_company_id, assigned_provider_id } = req.body;
 
     if (!economic_number || !license_plate || !serial_number || !type || !brand || !model || !year || !assigned_company_id) {
@@ -343,11 +344,13 @@ app.post('/api/units', async (req, res) => {
       model,
       year,
       assigned_company_id,
-      assigned_provider_id
+      assigned_provider_id,
+      tenantId
     });
 
     await auditLogger.log({
-      userId: null,
+      userId: req.user?.userId || null,
+      tenantId,
       action: 'create',
       entity: 'unit',
       entityId: unit.id,
@@ -575,9 +578,10 @@ app.post('/api/contracts', resolveTenant, requireAuth, async (req, res) => {
 });
 
 console.log('>> registrando GET /api/providers');
-app.get('/api/providers', async (req, res) => {
+app.get('/api/providers', resolveTenant, requireAuth, async (req, res) => {
   try {
-    const providers = await getProviders();
+    const tenantId = req.tenantId;
+    const providers = await getProviders(tenantId);
     res.json({ ok: true, data: providers });
   } catch (error) {
     console.error(error);
@@ -586,8 +590,9 @@ app.get('/api/providers', async (req, res) => {
 });
 
 console.log('>> registrando POST /api/providers');
-app.post('/api/providers', async (req, res) => {
+app.post('/api/providers', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { name, type, rfc, contact_name, contact_email, contact_phone } = req.body;
 
     if (!name || !type) {
@@ -604,20 +609,17 @@ app.post('/api/providers', async (req, res) => {
       rfc,
       contact_name,
       contact_email,
-      contact_phone
+      contact_phone,
+      tenantId
     });
 
     await auditLogger.log({
-      userId: null,
+      userId: req.user?.userId || null,
+      tenantId,
       action: 'create',
       entity: 'provider',
       entityId: provider.id,
-      metadata: {
-        name,
-        type,
-        rfc,
-        contact_name
-      },
+      metadata: { name, type },
       req
     });
 
@@ -746,8 +748,9 @@ app.post('/api/contracts/:id/upload', upload.single('pdf'), async (req, res) => 
 });
 
 console.log('>> registrando POST /api/payments');
-app.post('/api/payments', async (req, res) => {
+app.post('/api/payments', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { contract_id, payment_date, due_date, amount, payment_method, status } = req.body;
 
     if (!contract_id || !amount) {
@@ -764,11 +767,13 @@ app.post('/api/payments', async (req, res) => {
       due_date,
       amount,
       payment_method,
-      status
+      status,
+      tenantId
     });
 
     await auditLogger.log({
-      userId: null,
+      userId: req.user?.userId || null,
+      tenantId,
       action: 'create',
       entity: 'payment',
       entityId: payment.id,
@@ -917,9 +922,10 @@ app.post('/api/payments/:id/upload', uploadPayment.single('pdf'), async (req, re
 // --- COMPANIES ROUTES ---
 
 console.log('>> registrando GET /api/companies');
-app.get('/api/companies', async (req, res) => {
+app.get('/api/companies', resolveTenant, requireAuth, async (req, res) => {
   try {
-    const companies = await getCompanies();
+    const tenantId = req.tenantId;
+    const companies = await getCompanies(tenantId);
     res.json({ ok: true, data: companies });
   } catch (error) {
     console.error(error);
@@ -928,15 +934,17 @@ app.get('/api/companies', async (req, res) => {
 });
 
 console.log('>> registrando POST /api/companies');
-app.post('/api/companies', async (req, res) => {
+app.post('/api/companies', resolveTenant, requireAuth, async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
-    const company = await createCompany(name);
+    const company = await createCompany(name, tenantId);
 
     await auditLogger.log({
-      userId: null,
+      userId: req.user?.userId || null,
+      tenantId,
       action: 'create',
       entity: 'company',
       entityId: company.id,
